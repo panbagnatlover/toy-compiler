@@ -698,8 +698,6 @@ Node *decl_parser(char *input, Context *c) {
         c->has_parsing_error = true;
     }
 
-    LOG_DBG("Exit decl parser.");
-
     return decl;
 }
 

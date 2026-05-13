@@ -237,6 +237,7 @@ Token scan(char *input, Context *c) {
                     s = s * 10 + input[c->t_end] - '0';
                     c->t_end++;
                 } while (is_digit(input[c->t_end]));
+                s *= -1;
             }
         }
 

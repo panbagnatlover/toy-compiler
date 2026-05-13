@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
     LOG_DBG("Semantic analyzer ran with error code %d.", c-> has_semantic_error);
 
     /* Three-address code translation */
-    if (c->has_parsing_error && c->has_semantic_error) goto cleanup;
+    if (c->has_parsing_error || c->has_semantic_error) goto cleanup;
 
     LOG_DBG("Start translation.");
 
