@@ -1,0 +1,118 @@
+Goal: A compiler that can compile without SSA. Also
+handles nested functions. Memory unsafe. No garbage
+collection.
+
+Memory is untyped in IR.
+Each operand in IR carries type information.
+For all analysis, 1-context sensitive.
+
+variable { // location of memory addresses
+    bool is_reg; // whether the variable is a virtual register
+    type;  // memory, int, float, array, etc.
+    name;
+    int location; // if is_reg, location is a register; else, stack offset
+};
+
+operand {
+    union {
+        *variable;
+
+        constant {
+            type;
+            value;
+        };
+    }
+
+    Inst *inst;
+
+    size_t ind;  // Index in pool
+}
+
+Modules:
+
+TODO:
+- Super deprioritized:
+    - change all pointer references to indices using an int type
+    with less memory footprint, e.g., 4 bytes instead of 8 bytes
+- Frontend needs:
+    - struct
+    - array
+    - pointer
+    - (nested) function
+    - symbol table updates
+        - allow nested function scope
+        - rename symbol to variable
+    - rename all vars / operands by procedure
+    - IR nested functions
+    - change variable ID from string name to a size_t index,
+    maybe representing location in pool?
+    - assign each oeprand, variable a pool index id, built
+    into the newvar() and newoperand() functions
+
+0. Utils
+- Order blocks in reverse postorder
+- Block simplification
+    - Dead path removal & redundant jump elimination
+- List Scheduling for a CFG
+    - Build machine DAG
+    - Apply list scheduling
+    - Return reordered CFG
+
+1. Construct basic blocks
+Input: array of IR instructions for each procedure
+Output: CFG for each procedure
+
+2. Local optimization round
+- ...
+- Dead code removal, assuming all variables are live on exit
+
+3. SSA lifting round here.
+x = &y
+z = x
+...
+x = &t
+z = x
+Allow for more precise point-to sets.
+- Need a round of simple reaching definitions
+- Identify webs
+- Rename variables belonging to different webs
+
+4. Analysis involving memory: ICFG + pointer analysis
+TODO: intraprocedural analysis taking into account functions
+TODO: also need a mapping variable <> pt(mem(variable))
+- Flow insensitive (Andersen), 1-context sensitive
+- Output: Memory -> bitVector of Memories, MUST or MAY;
+val()
+- constant propagation + register promotion
+- Apply live analysis involving memory
+- eliminate dead code
+
+5. Additional DFA analysis without memory
+- CSE, etc.
+- run CFG simplification
+
+Before backend:
+- Tag each variable memory vs vreg
+
+9. Instruction selection
+- Macro expansion + combiner
+- Add prologue in entry and epilogue in exit blocks for each procedure
+- Replace memory addresses
+Input: DAG for each CFG for each procedure
+Output: CFG with lowered instructions with virtual registers
+
+10. 1st round scheduling
+
+11. Register allocation
+- Take either approach
+Input: CFG with lowered instructions with virtual registers
+Output: CFG with updated instructions with actual registers
+
+12. Peephole optimization
+- Remove redundant LD, ST, etc.
+
+13. 2nd round scheduling
+
+14. Flatten blocks
+Input: CFG for each procedure with fully lowered instructions
+Output: flattened instructions for each procedure

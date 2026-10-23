@@ -9,7 +9,7 @@
 
 typedef struct {
     int ind;
-    bool is_temp;
+    bool is_temp; /* TODO - may not need this */
     char *name;
     Type *type;
 } Symbol;
