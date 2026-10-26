@@ -1,14 +1,31 @@
+/* TODO - 
+ * chunked bitarray vs normal (dense) bitarray.
+ * Allow both to dynamically expand. */
 
 /* Separate object because data flow objects
  * are temporary and do not get reused. */
-typedef struct DataFlowObject {
+#include <stdlib.h>
+
+/* Capping the domain size to ~16M objects.
+ * Each chunk consists of 256 bits, and a
+ * chunked bit array can have 2^16 chunks. */
+typedef struct {
+    uint16_t ind;
+    uint64_t bits[4];  // 256 bits
+} Chunk;
+
+typedef struct {
+    Array<Chunk> chunks;
+} ChunkedBitArray;
+
+typedef struct {
     BitArray in;
     BitArray out;
     BitArray use;
     BitArray def;
     Block *block;
     TFunc *func;
-};
+} DataFlowObject;
 
 /* Standard intraprocedural DFA */
 
@@ -68,4 +85,35 @@ void dfa(
     }
 }
 
-/* Andersen DFA */
+/* Andersen DFA - domain is not known beforehand */
+Allocate a fixed domain chunk to start;
+global point-to map;
+
+bool changed = true;
+while global point-to map changed {
+    changed = false;
+
+    for obj in objs {
+        update val set;
+        if (new value) {
+            create newInt(value); // NAI, Universe included
+            update bit chunk;
+        }
+
+        update pt set;
+        if (new memory) {
+            create newMem(value);
+            update bit chunk;
+        }
+
+        update change;
+    }
+}
+
+void update_bit_chunk(ChunkedBitArray *array) {
+    if has buffer, allocate to latest chunk of array;
+    if no buffer {
+        create a new chunk to array;
+        allocate bit to the new chunk;
+    }
+}

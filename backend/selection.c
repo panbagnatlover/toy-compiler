@@ -4,7 +4,8 @@
  * a heap-allocated set attribute, and copying
  * heap set is impractical. Or, do we want BitSet?
  * TODO: hash set -> links. Revisit question above.
- * TODO: alias comparison on bitmap instead of hash set. */
+ * TODO: alias comparison on bitmap instead of hash set
+ * TODO: at the end, run a round of CFG simplification. */
 
 #include "block.h"
 #include "mem.h"
@@ -63,7 +64,8 @@ void selection(Array<Block *> blocks, rules?) {
      * into a bitset, and tag def / use for each block.
      * Use def chain can be set up by looking at the reaching
      * definition at each instruction and populating defs for
-     * the use, and use for the defs. Use BitSet or hash set? */
+     * the use, and use for the defs. Use hash set first,
+     * then build chains. */
 
     /* TODO: build memory chain. */
 

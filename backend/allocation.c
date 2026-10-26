@@ -56,6 +56,7 @@ if (cond) goto loop 1
 x = x * 2
 y = x - 1
 if (cond) goto loop 1
+...
 
 x = 1
 y = x
@@ -65,8 +66,10 @@ if (cond) goto loop 1
 x = x2
 x = x * 2
 y = x - 1
-x2 = x
-if (cond) goto loop 1
+if (cond) goto L3
+...
+L3: x2 = x
+goto loop 1
 
 /* Example: long range splitting */
 x = 2
@@ -117,20 +120,32 @@ L1: z = x
  * insert MOV at the last boundary.
  * 
  * Hot loop splitting:
- * If interval at loop boundary, insert MOV before
- * each predecessor's jump instruction, then,
- * if original vreg live after the loop end,
- * insert MOV right after the block with the back edge.
+ * If interval at loop boundary, for every
+ * predecessor out of the loop that has multiple
+ * successors (i.e., conditional branch),
+ * create a new block with MOV and goto loop head.
+ * For every predecessor out of the loop that has
+ * a single successor, insert MOV before
+ * each predecessor's jump instruction. For every exit
+ * block (i.e., block in the loop that can branch out
+ * of the loop), note that each block must be a conditional.
+ * If the original vreg is live in the exit branch, add a block
+ * between the exit block and the successor out of the loop,
+ * and insert a reverse MOV there.
  * Note that splitting multiple loops headed by the same
  * instruction is not possible.
  * 
  * Long range splitting:
- * If range has no loop, register pressure in the
- * short term is high, there's a far far away next use
- * or redef, split right after the last short term use
- * or redef and spill the short term segment. Insert 
+ * If register pressure in the short term is high, 
+ * there's a far far away next use or redef, no holes,
+ * the latest dominating block before the next use or redef
+ * reverse dominates all uses and redefs in the short term,
+ * split at the latest dominating block before the next use
+ * or redef and spill the first segment. Insert 
  * LDR at the latest dominating block of all the next uses
  * and redefs.
+ * 
+ * If the above but holes, split at holes.
  * */
 
 int priority_func(variable <> live range) {
@@ -161,7 +176,7 @@ while (queue not empty) {
          * range. */
         for (each register) {
             find conflicting ranges;
-            if (cost of spilling the conflicting ranges < profitability of front) {
+            if (cost of spilling the conflicting ranges < spill weight of front) {
                 evict the conflicting ranges, push to queue;
                 assign front to register;
                 break;
@@ -181,11 +196,25 @@ while (queue not empty) {
     int split_profit_intra_block;
     int split_profit_long_range;
 
+    /* Profitability is estimated as the net profitability
+     * of assigning split region to register while
+     * spilling the other segments, against the spill
+     * cost of the entire live range. We can simplify
+     * the assessment by assuming a benchmark of 0
+     * and calculate the profitability of the split region
+     * along. Therefore, we use the following formula:
+     * (the spill cost of the split region) x
+     * (estimated execution weight of the split region) - 
+     * (the cost of MOV insertions) x
+     * (estimated execution weight of the outer loop). */
+    /* TODO - factor in existing register pressure of
+     * the split region. */
+    /* TODO - need to rewrite vreg */
     try_hot_loop_splitting();
     try_intra_block_splitting();
     try_long_range_splitting();
 
-    if (max profitability > spill cost) {
+    if (max profitability) {
         split at the best strategy;
         if long range, split the current, push the next segment to queue;
         else, push new and changed ranges to queue;
@@ -196,6 +225,26 @@ while (queue not empty) {
      * methods apply. */
     spill;
 }
+
+int, Strategy try_hot_loop_splitting(LiveRange *lr) {
+    if (not eligible) return 0;
+
+    /* Find all eligible splitting options */
+
+    return max(profitability, 0), Strategy;
+}
+
+void split_by_loop_boundary(LiveRange *lr, Strategy) {
+    /* TODO */
+    /* Insert MOVs */
+    /* Update ranges (intervals, uses, defs, spill cost, etc.) */
+    /* Push back to worklist */
+}
+
+/* TODO - hot loop move insertion
+ * assign the loop of the predecessor when inserting
+ * a pre-header; assign the loop of the successor when
+ * inserting a post-header. */
 
 /* Spill rewrite + move insertion */
 assignment = Dict(); // Current assignment. vreg -> register

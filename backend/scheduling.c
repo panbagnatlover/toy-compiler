@@ -1,14 +1,10 @@
 /* TODO: 2nd round scheduling does not require
- * updating live intervals unless for logging. */
+ * updating live intervals or being register aware. */
 
 /* Lookback window for list scheduling
  * in a circular buffer. */
 #define RESOURCE_LOOKBACK 10
 #define BUFFER_SIZE 30
-
-/* TODO: index instructions and build live intervals.
- * Tag live in, live outs at block level.
- * Note that DFA is needed since non-SSA. */
 
 void scheduling(Array<MBlock *> blocks) {
     for (block in blocks) {

@@ -23,6 +23,7 @@ typedef struct MBlock {
     struct MBlock *bl1;
     BitSet defs;
     BitSet uses;
+    Loop *loop;
 }
 
 #endif

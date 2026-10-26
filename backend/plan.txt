@@ -116,3 +116,37 @@ Output: CFG with updated instructions with actual registers
 14. Flatten blocks
 Input: CFG for each procedure with fully lowered instructions
 Output: flattened instructions for each procedure
+
+15. Peephole again
+
+Qs
+- CFG simplification after instruction selection since combiner
+changes structure?
+- When do loop indexing, after instruction selection or
+during middle end?
+- Because CFG structure and instructions can change after
+combiner, pool index will not be in order, so require
+reindexing for live intervals?
+- Peephole after final flattening?
+- Any middle end pass that requires loop info in each block?
+
+/* TODO: before first-round scheduling,
+ * 1 pass: index loops. Create Loop and index info at block
+ * level. For each loop, create placeholder blocks
+ * for critical edges.
+ * 2 pass: Linearize instructions (Array<MInst *>),
+ * order block in increasing order of start_ind (Array<BlockInfo>).
+ * For placeholder blocks, allocate max reg size + 1 (for jump instruction).
+ * Index block start / end and loop start / end.
+ * 3 pass: Run live variable analysis on vregs and tag
+ * block-level live-in and live-out. Note that DFA
+ * is needed since non-SSA.
+ * 4 pass: Build live intervals for each vreg and index
+ * uses and defs.
+ */
+
+Do you run CFG simplification after reg alloc? Yes. If so,
+need to reindex the loops? What exactly is needed for
+CFG flattening in the end?
+
+TODO: trigger global renumbering if a gap is filled.
