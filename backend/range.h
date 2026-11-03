@@ -19,15 +19,20 @@ typedef struct {
     int loop_depth;
 } LiveRange;
 
+/* Needed to record live_in, live_out, etc. */
 typedef struct {
-    size_t start_ind;
-    size_t end_ind;
-    MBlock *block;
+    // size_t start_ind;
+    // size_t end_ind;
+    size_t block_ind;
+    Array<int> inst_array;
+    Set<Vreg *> live_in;
+    Set<Vreg *> live_out;
 } BlockInfo;
 
+/* TODO - needed? */
 typedef struct {
-    size_t start_ind;
-    size_t end_ind;
+    // size_t start_ind;
+    // size_t end_ind;
     Loop *loop;
 } LoopInfo;
 

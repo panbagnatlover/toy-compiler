@@ -3,11 +3,17 @@
  * Based on the paper, greedy heuristics in a separate
  * pass does not generate materially different
  * results from the optimal integrated solution.
- * Implement splitting however, to account for the
+ * Need to implement splitting to account for the
  * drawback of register pressure as a result of coalescing.
  * 
  * Decision: split on the fly but insert moves
  * in a post-pass, along with spill code generation.
+ * 
+ * TODO: rewriting: when instruction is MOV a, b,
+ * and b is in the stack while a not, emit LD a, b.loc
+ * directly.
+ * 
+ * TODO: b tree
  */
 
 /* Example: be careful with MOV insertion at
@@ -113,40 +119,6 @@ x2 = 2
 x = x2
 L1: z = x
 
-/* Intra block splitting:
- * If interval within a block,
- * insert MOV at the first interval boundary,
- * then, if original vreg live after the last boundary,
- * insert MOV at the last boundary.
- * 
- * Hot loop splitting:
- * If interval at loop boundary, for every
- * predecessor out of the loop that has multiple
- * successors (i.e., conditional branch),
- * create a new block with MOV and goto loop head.
- * For every predecessor out of the loop that has
- * a single successor, insert MOV before
- * each predecessor's jump instruction. For every exit
- * block (i.e., block in the loop that can branch out
- * of the loop), note that each block must be a conditional.
- * If the original vreg is live in the exit branch, add a block
- * between the exit block and the successor out of the loop,
- * and insert a reverse MOV there.
- * Note that splitting multiple loops headed by the same
- * instruction is not possible.
- * 
- * Long range splitting:
- * If register pressure in the short term is high, 
- * there's a far far away next use or redef, no holes,
- * the latest dominating block before the next use or redef
- * reverse dominates all uses and redefs in the short term,
- * split at the latest dominating block before the next use
- * or redef and spill the first segment. Insert 
- * LDR at the latest dominating block of all the next uses
- * and redefs.
- * 
- * If the above but holes, split at holes.
- * */
 
 int priority_func(variable <> live range) {
     /* TODO: Take into account spill cost, loop
@@ -155,9 +127,10 @@ int priority_func(variable <> live range) {
 
 occupied<register, Set<live ranges>>;  // TODO - cranelift uses a btree
 precolor registers;
-map of vregs that can be colaesced with no interference;
+merge vregs that can be colaesced with no interference,
+update live ranges;
 
-push all variable <> live ranges onto priority queue;
+push live ranges onto priority queue;
 
 while (queue not empty) {
     get front;
@@ -167,13 +140,13 @@ while (queue not empty) {
         assign to free register;
         continue;
     }
+    /* Find the first register where the cost
+     * of spilling assigned ranges that conflict
+     * with the incoming range is lower than the
+     * priority of the incoming range, evict the
+     * conflicting ranges, and assign the incoming
+     * range. */
     else {
-        /* Find the first register where the cost
-         * of spilling assigned ranges that conflict
-         * with the incoming range is lower than the
-         * priority of the incoming range, evict the
-         * conflicting ranges, and assign the incoming
-         * range. */
         for (each register) {
             find conflicting ranges;
             if (cost of spilling the conflicting ranges < spill weight of front) {
@@ -196,28 +169,28 @@ while (queue not empty) {
     int split_profit_intra_block;
     int split_profit_long_range;
 
-    /* Profitability is estimated as the net profitability
+    /* TODO: makes no sense, need to update logic.
+     * Profitability is estimated as the net profitability
      * of assigning split region to register while
      * spilling the other segments, against the spill
      * cost of the entire live range. We can simplify
      * the assessment by assuming a benchmark of 0
      * and calculate the profitability of the split region
      * along. Therefore, we use the following formula:
-     * (the spill cost of the split region) x
-     * (estimated execution weight of the split region) - 
-     * (the cost of MOV insertions) x
+     * (the spill cost of the split region) - 
+     * (the cost of extra instructions) x
      * (estimated execution weight of the outer loop). */
     /* TODO - factor in existing register pressure of
      * the split region. */
-    /* TODO - need to rewrite vreg */
     try_hot_loop_splitting();
     try_intra_block_splitting();
     try_long_range_splitting();
 
     if (max profitability) {
         split at the best strategy;
-        if long range, split the current, push the next segment to queue;
-        else, push new and changed ranges to queue;
+        rewrite split region vreg?
+        update live range somehow?
+        push new ranges to queue;
         continue;
     }
 
@@ -226,25 +199,229 @@ while (queue not empty) {
     spill;
 }
 
-int, Strategy try_hot_loop_splitting(LiveRange *lr) {
+int calc_spill_cost(LiveRange *lr) {
+    /* Proportional to the number of uses and defs. */
+    int total = 0;
+    /* TODO: loop through each interval when invoked? */
+    for each interval {
+        total += execution_weight * (2 * uses + defs);
+    }
+    return total;
+}
+
+int try_hot_loop_splitting(LiveRange *lr) {
+    /* Eligibility: need to cover the entire loop. */
     if (not eligible) return 0;
 
-    /* Find all eligible splitting options */
+    /* Find all eligible splitting options.
+     * Use binary search since loop info is sorted. */
+
+    /* Estimate register pressure by (L - R) x E,
+     * where L represents the number of vregs in the
+     * live_in set of the loop head, R represents the
+     * number of registers available, and E represents
+     * the execution weight. */
+
+    /* Calculate reg pressure before / after and add
+     * delta to profitability. Update metric. */
 
     return max(profitability, 0), Strategy;
 }
 
-void split_by_loop_boundary(LiveRange *lr, Strategy) {
-    /* TODO */
-    /* Insert MOVs */
-    /* Update ranges (intervals, uses, defs, spill cost, etc.) */
-    /* Push back to worklist */
+int try_inter_block_splitting(LiveRange *lr) {
+    /* Eligibility: covers one or more blocks. */
+    if (not eligible) return 0;
+
+    
 }
 
-/* TODO - hot loop move insertion
- * assign the loop of the predecessor when inserting
- * a pre-header; assign the loop of the successor when
- * inserting a post-header. */
+int, Array<int> try_intra_block_splitting(LiveRange *lr) {
+    /* Eligibility: contains at most one block,
+     * and must have at least 3 uses. */
+    if (not eligible) return 0;
+
+    int profit = 0;
+    int split_pt = 0;
+
+    /* Try to split before each use or def and
+     * assess profitability. */
+    /* TODO: find interval, not just a single split point */
+    for each use or def after first instruction {
+        int score = calc_profitability(inst);
+        if (score > profit) {
+            profit = score;
+            split_pt = inst_ind;
+        }
+    }
+
+    return profit, split_pt;
+}
+
+/* Hot loop splitting:
+ * If interval at loop boundary, for every
+ * predecessor out of the loop that has multiple
+ * successors (i.e., conditional branch),
+ * create a new block with MOV and goto loop head.
+ * For every predecessor out of the loop that has
+ * a single successor, insert MOV before
+ * each predecessor's jump instruction. For every exit
+ * block (i.e., block in the loop that can branch out
+ * of the loop), note that each block must be a conditional.
+ * If the original vreg is live in the exit branch, add a block
+ * between the exit block and the successor out of the loop,
+ * and insert a reverse MOV there. */
+void split_around_loop(LiveRange *lr, Strategy) {
+
+    rewrite every x in loop to x1;
+    remove loop blocks from live range of x;
+    create new live range for x1 and add the loop blocks;
+    loop_head_info.live_in.remove(x);
+
+    for p in loop_head->predecessors {
+        if (x not live_out in p) continue;
+
+        if (p->bl1) {
+            Block *b = new Block();
+
+            if (p->bl1 == loop_head) p->bl1 = b;
+            else p->bl0 = b;
+
+            b->bl0 = loop_head;
+            b->start = MOV x1, x;
+            b->end = b->start;
+
+            /* Update live_in, live_out. */
+            create block info for b;
+            b_info.live_in.add(x);
+            b_info.live_out.add(x1);
+
+            /* Update live range. */
+            add the block as end to live range for x;
+
+            for all vregs in p.live_out intersect s.live_in {
+                add block to vreg live range;
+            }
+
+            /* TODO - update use, def */
+        }
+
+        else {
+            insert MOV x1, x right before conditional
+            at the end;
+
+            /* Update live_in, live_out. */
+            p_info.live_out.add(x1);
+            p_info.live_out.remove(x);
+
+            /* Update live range. */
+            for all vregs in p.live_out {
+                extend interval by 1;
+            }
+
+            /* TODO - update use, def */
+        }
+    }
+
+    for l in loop->exits {
+        bool is_left;
+        Block *s;
+
+        if (l->bl0 out of loop) {
+            is_left = true;
+            s = l->bl0;
+        }
+        else {
+            is_left = false;
+            s = l->bl1;
+        }
+
+        if (x not live_in s) continue;
+
+        if (s->predecessors.size() > 1) {
+            Block *b = new Block();
+
+            if (is_left) l->bl0 = b;
+            else l->bl1 = b;
+
+            b->bl0 = s;
+            b->start = MOV x, x1;
+            b->end = b->start;
+
+            /* Update live_in, live_out. */
+            create block info for b;
+            b->live_in.add(x1);
+            b->live_out.add(x);
+
+            /* Update live range. */
+            add the block as end to live range of x1.
+
+            for all vregs in l.live_out intersect s.live_in {
+                add the block to live range of vreg;
+            }
+
+            /* TODO - update use, def */
+        }
+        else {
+            insert MOV x, x1 at the beginning of s;
+
+            /* Update live_in, live_out. */
+            s_info.live_in.add(x1);
+            s_info.live_in.remove(x);
+
+            /* Update live range. */
+            for all vregs in s.live_in {
+                extend interval by 1;
+            }
+
+            /* TODO - update use, def */
+        }
+
+        /* TODO: update interval and stuff */
+    }
+}
+
+/* Inter block splitting:
+ * For candidate blocks, load before first use
+ * or def, and spill after last use. This means, create a new
+ * spill range that consists of the block parts being spilled,
+ * then for each split candidate block, create a new range. No
+ * MOV insertion in this case. */
+void split_around_block(LiveRange *lr) {
+    /* TODO - spill code gen? */
+}
+
+/* Intra block splitting.
+ * Insert MOV at the first interval boundary,
+ * then, if original vreg live after the last boundary,
+ * insert MOV at the last boundary.
+ * No change to live in, live out sets at the block level. */
+void split_within_block(LiveRange *lr) {
+    insert MOV x1, x at first splitting point;
+    if x live at second splitting point, insert MOV x, x1
+    at second splitting point;
+
+    for each instruction in between:
+        allocate to new index;
+        replace x with x1;
+    
+    split live range of x for that block:
+        end at first splitting point;
+        if second splitting point, start after the second MOV;
+    
+    /* Update live intervals */
+    Get all vregs live at original first splitting point
+    (before MOV);
+    If an interval ends before original second splitting
+    point, adjust by increment ending by 1;
+    If an interval live at original second splitting point,
+    adjust by increment ending by 2;
+
+    Get all vregs live after original first splitting point
+    and before or at second splitting point, adjust by
+    increment ending by 1;
+
+    /* TODO: update use defs */
+}
 
 /* Spill rewrite + move insertion */
 assignment = Dict(); // Current assignment. vreg -> register
@@ -259,27 +436,14 @@ for (each instruction, slot) {
         continue;
     }
 
-    /* TODO: Move insertion */
-    for each vreg {
-        LiveRange *live_range = get_live_range(vreg);
-        if (not at split juncture) continue;
-        switch (live_range->split_type) {
-            case INTRA_BLOCK:
-                break;
-            case HOT_LOOP;
-                break;
-            case LONG_RANGE;
-                break;
-            default:
-        }
-    }
-
 	evicted = Set();
 
 	for each RHS vreg
 		if it is spilled
             if it already lives in a free register, i.e., assignment[vreg] = register
                 keep assignment[vreg], do nothing;
+            else if MOV instruction
+                change instruction to LD;
 			else if there exists a free register at slot
                 set assignment[vreg] = register;
 				Emit LD register, vreg.location;
@@ -300,6 +464,7 @@ for (each instruction, slot) {
             assignment[evicted vreg] = evicted;
 
 	replace vreg with assignment[vreg];
+    emit instruction;
 
 	if LHS variable is spilled
 		Emit ST assignment[vreg], vreg.location;

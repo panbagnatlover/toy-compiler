@@ -2,9 +2,6 @@
 #include <stdbool.h>
 #include "block.h"
 
-/* TODO: at some point, build dominator tree and identify
- * loop head. Is Loop head <=> block dominates a predecessor. */
-
 /* TODO: input instruction array should be a fixed pool.
  * Instruction cjump and jump have NULL next. Their
  * successors have NULL prev. */
@@ -178,6 +175,7 @@ Array *orderCFG(Block *entry) {
  * and collapse redundant blocks. At every iteration,
  * push modified blocks back to the worklist. Repeat
  * until worklist is empty. */
+/* TODO: mark loop as modified */
 void simplifyCFG(Block *b_entry) {
     Stack<Block *> worklist;
     Set<Block *> added;
@@ -303,25 +301,59 @@ void simplifyCFG(Block *b_entry) {
             s->bl0->predecessors.remove(s);
             s->bl0->predecessors.add(block);
             s->bl1->predecessors.remove(s);
-            s->bl0->predecessors.add(block);
+            s->bl1->predecessors.add(block);
 
             worklist.add(block);
             added.add(block);
         }
+    }
 }
 
-/* Flatten CFG back to array of instructions. */
-void flattenCFG(Block *b_entry) {
+/* Estimate priority as the number of net addition
+ * in GOTOs if the branch is not taken. */
+float branch_priority(Block *block, Block *child) {
+    float priority = 1;
 
-    /* TODO - assign every block a priority score somehow */
+    if block is in a loop {
 
-    /* TODO - handle exit */
+        if (block and child share the same innermost loop) {
+            priority = loop_frequency;
+        }
+
+        else if (child enters a nested loop) {
+            priority = loop_frequency * branch_frequency;
+        }
+
+        else if (child exits the loop) {
+            priority = loop_frequency * (1 - branch_frequency);
+        }
+    }
+
+    else priority = branch_frequency;
+
+    return priority;
+}
+
+/* Flatten CFG back to array of instructions. Use
+ * greedy DFS to prioritize more frequent paths
+ * or paths in loops. Allow the exit block,
+ * if exists, to be placed in the middle of the
+ * program. */
+void flattenCFG(Block *b_entry, Block *b_exit) {
+
+    Stack<Block *>worklist;
 
     worklist.push(b_entry);
 
     while (!worklist.empty()) {
-        Block *block = worklist.pop();
+        Block *block = worklist.top();
+        worklist.pop();
+
         emit(block without conditional);
+
+        /* If the block consists of only one path
+         * to another block, process the other block
+         * next. */
         if (!block->bl1) {
             if (block->bl0 is emitted) {
                 emit(GOTO bl0);

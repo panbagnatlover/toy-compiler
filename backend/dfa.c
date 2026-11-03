@@ -110,6 +110,13 @@ while global point-to map changed {
     }
 }
 
+/* Needed when bitarray needs to resize, e.g., during
+ * MOV insertion in register allocation, live_in / live_out
+ * sets may change in size. */
+void update_bit_array(BitArray *array) {
+
+}
+
 void update_bit_chunk(ChunkedBitArray *array) {
     if has buffer, allocate to latest chunk of array;
     if no buffer {
