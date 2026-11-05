@@ -197,7 +197,7 @@ TODO: profiling to populate loop and branch frequency
 TODO: dominator tree
 
 TODO: data structure for live range
-- # of uses and defs (in each interval or sum all)
+- # of uses and defs (in each interval and sum all)
 - location of uses and defs in a live range
 - execution weight of each each block in a range
 - need to update block live in live out when coalescing
@@ -205,18 +205,5 @@ and splitting
 - need to know live range / intervals for all vregs at a
 program point
 - creating new blocks for splitting puts block_ind at last
-
-Interval {
-    size_t block_ind;
-    size_t start;
-    size_t end;
-};
-
-LiveRange {
-    Array<size_t> intervals;  // sort by block_ind
-
-};
-
-Block A live out, two successors, B, C, live in in just B:
-Block A: [start, end). Block B: [start, blabla).
-Block C: not at start.
+- total uses and total defs for all vregs at an interval
+- total number of vregs live at a point, or in an interval

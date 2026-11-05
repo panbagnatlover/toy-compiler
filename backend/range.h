@@ -4,36 +4,31 @@
 #include <stdlib.h>
 
 typedef struct {
+    size_t block_ind;
     size_t start;
     size_t end;
+    Array<int> uses;
+    Array<int> defs;
 } Interval;
 
 typedef struct {
     Variable *var;
-    Array<Interval> range;
-    Array<size_t> defs;
-    Array<size_t> uses;
-
+    Array<Interval> intervals;
     int assigned_reg;  // 0 = spill
-    int spill_cost;
-    int loop_depth;
 } LiveRange;
 
-/* Needed to record live_in, live_out, etc. */
 typedef struct {
     // size_t start_ind;
     // size_t end_ind;
     size_t block_ind;
-    Array<int> inst_array;
+    Array<int> inst_array;  // TODO - needed? Or just count
     Set<Vreg *> live_in;
     Set<Vreg *> live_out;
-} BlockInfo;
+} BlockInfo;  // Same index in pool as Block
 
-/* TODO - needed? */
 typedef struct {
-    // size_t start_ind;
-    // size_t end_ind;
     Loop *loop;
+    Array<Interval> intervals;
 } LoopInfo;
 
 #endif
