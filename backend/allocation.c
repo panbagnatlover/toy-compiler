@@ -6,10 +6,14 @@
  * Need to implement splitting to account for the
  * drawback of register pressure as a result of coalescing.
  * 
- * Decision: split on the fly but insert moves
- * in a post-pass, along with spill code generation.
+ * Decision: split and insert MOV inst on the fly.
+ * vreg -> rewrite and spill code generation in a post-pass.
+ * See comment at post-pass for why it correctly generates
+ * code.
  * 
  * Decision: no need to maintain reg pressure at every slot.
+ * Reg pressure estimated by eviction cost of interfering
+ * ranges.
  * 
  * Decision: Slot object to specify slot locations.
  * Note the following example. If using slot object,
@@ -38,7 +42,7 @@
     insertion point), and have x1 interval start at
     slot after MOV.
  * 
- * TODO: b tree
+ * TODO: b tree?
  */
 
 /* Example: be careful with MOV insertion at
