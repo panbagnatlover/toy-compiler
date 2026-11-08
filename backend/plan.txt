@@ -152,7 +152,6 @@ CFG flattening in the end? innermost_loop, exits, loop frequency.
 TODO: How is live range constructed?
 Decision: construct by block boundaries. This makes
 splitting easier.
-Q: why need slot index? what if compare blocks
 
 5: How to do long range splitting? Counterexamples
 Decision: no rematerialization. No "long range splitting",
@@ -206,4 +205,21 @@ and splitting
 program point
 - creating new blocks for splitting puts block_ind at last
 - total uses and total defs for all vregs at an interval
-- total number of vregs live at a point, or in an interval
+- total number of vregs live at a point
+- reg_pressure at every slot
+
+TODO - mov insertion does not change reg pressure,
+copies the reg pressure # at insertion point again
+
+TODO - find all loops completely covered by range
+
+TODO - given a live range, find a free register
+
+TODO - given a set of live ranges and a target range, find ranges
+that conflict with a range. Given a program point, find all
+ranges that cover the point.
+Idea: use interval tree, k log (n). Need to index vreg for each
+interval too, not just range.
+
+TODO - need use, def, location of uses and defs for split strategies
+and spill weight calc
