@@ -112,10 +112,7 @@ Output: CFG with lowered instructions with virtual registers
 For each loop, create placeholder blocks for critical edges.
 
 9. Build live intervals
-- Linearize instructions (Array<MInst *>),
- * order block in increasing order of start_ind (Array<BlockInfo>).
- * For placeholder blocks, allocate max reg size + 1 (for jump instruction).
- * Index block start / end and loop start / end.
+- Create block info, instruction info, slot objects
 - Run live variable analysis on vregs and tag
  * block-level live-in and live-out. Note that DFA
  * is needed since non-SSA.
@@ -195,31 +192,7 @@ TODO: profiling to populate loop and branch frequency
 
 TODO: dominator tree
 
-TODO: data structure for live range
-- # of uses and defs (in each interval and sum all)
-- location of uses and defs in a live range
-- execution weight of each each block in a range
-- need to update block live in live out when coalescing
-and splitting
-- need to know live range / intervals for all vregs at a
-program point
-- creating new blocks for splitting puts block_ind at last
-- total uses and total defs for all vregs at an interval
-- total number of vregs live at a point
-- reg_pressure at every slot
-
-TODO - mov insertion does not change reg pressure,
-copies the reg pressure # at insertion point again
-
-TODO - find all loops completely covered by range
-
-TODO - given a live range, find a free register
-
-TODO - given a set of live ranges and a target range, find ranges
-that conflict with a range. Given a program point, find all
-ranges that cover the point.
-Idea: use interval tree, k log (n). Need to index vreg for each
-interval too, not just range.
-
-TODO - need use, def, location of uses and defs for split strategies
-and spill weight calc
+TODO p2: cache
+- reg pressure diff for each instruction can be cached.
+If remaining use for an interval changes, invalidate all
+affected cache.

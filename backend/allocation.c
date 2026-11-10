@@ -148,6 +148,23 @@ x2 = 2
 x = x2
 L1: z = x
 
+/* IntervalUnion methods */
+
+void insert_interval(LiveRange *lr, Interval *interval) {
+
+}
+
+void remove_interval(LiveRange *lr, Interval *interval) {
+
+}
+
+Array<Interval> query_interference(LiveRange *lr, Interval *interval) {
+
+}
+
+bool has_interference(LiveRange *lr, Interval *interval) {
+
+}
 
 int priority_func(LiveRange *lr) {
     /* TODO: Take into account spill cost, loop
@@ -192,7 +209,7 @@ Set<LiveRange *> find_interfering_ranges(LiveRange *lr, Reg r) {
          * matches with interval.start, then
          * continuing to walk until an interval intersects or
          * reg_interval.start >= interval.end */
-        Array<Interval> intervals = occupied[r].query_interference(interval);
+        Array<Interval> intervals = query_interference(occupied[r], interval);
         for (interval in intervals) {
             ranges.add(interval var range);
         }
@@ -201,17 +218,10 @@ Set<LiveRange *> find_interfering_ranges(LiveRange *lr, Reg r) {
     return ranges;
 }
 
-/* Given a program point, find all intersecting intervals. */
-Set<Interval *> find_intersecting_intervals(size_t block_ind, size_t slot_ind) {
-    /* TODO */
-}
-
 /* Given a program point and a vreg, return true if vreg
  * is live at the program point. */
 bool is_live(Slot *slot, VReg *vreg) {
-    /* TODO - use .find() to get the range point,
-     * return true if intersects an interval. */
-    return vreg range.has_interference([slot, slot]);
+    return has_interference(vreg range, [slot, slot]);
 }
 
 void insert_mov_instruction(Slot *slot, Vreg *old_vreg, Vreg *new_vreg) {

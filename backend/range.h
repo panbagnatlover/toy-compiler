@@ -39,15 +39,17 @@ typedef struct {
     size_t block_ind;
     Slot *start;
     Slot *end;
-    /* Decision: no need to maintain live_in or live_out.
+    /* Decision: no need to maintain live_in or live_out
+     * after live intervals are built for the first time.
      * Can just query on slot. */
-    // Set<Vreg *> live_in;
-    // Set<Vreg *> live_out;
+    Set<Vreg *> live_in;
+    Set<Vreg *> live_out;
 } BlockInfo;  // Same index in pool as Block
 
 typedef struct {
     Loop *loop;
-    Array<Interval> intervals; // TODO - interval with just start, end for querying?
+    Array<Interval> intervals;
+    int execution_weight;
 } LoopInfo;
 
 typedef struct {
