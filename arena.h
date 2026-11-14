@@ -35,13 +35,8 @@ typedef struct {
 } ArenaRef;
 
 /* APIs */
-
 Arena *arena(size_t elem_width, size_t block_size, FreeArenaBlockFunc func);
-
 ArenaRef push_arena(void *item, size_t units, Arena *a);
-
 void free_arena(Arena *a);
-
 void free_arena_block(ArenaBlock *block);
-
 #endif

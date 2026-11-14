@@ -1,4 +1,5 @@
 /* Type. */
+/* TODO - add memory type. */
 
 #ifndef H_TYPE
 #define H_TYPE

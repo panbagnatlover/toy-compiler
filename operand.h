@@ -11,9 +11,9 @@
 #include "symbol.h"
 
 typedef struct {
-    enum {CONST, VAR, TEMP, ERR_OPERAND} id;
+    enum {CONST, VAR, TEMP, ERR_OPERAND} id;  // TODO: rename to type or something
     union {
-        Symbol *symbol;
+        Symbol *symbol;  // TODO: change to variable
 
         struct {
             TypeID type_id;
@@ -25,6 +25,8 @@ typedef struct {
             };
         } constant;
     };
+
+    // TODO - add instruction ind, operand ind
 } Operand;
 
 #endif

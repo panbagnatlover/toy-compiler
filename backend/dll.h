@@ -1,4 +1,24 @@
-/* TODO - needed? Doubly linked list. */
+/* Doubly linked list. */
+#ifndef H_DDL
+#define H_DDL
+
+#include <stdlib.h>
+
+typedef struct {
+    void *elem;
+    DLLElem *next;
+    DLLElem *prev;
+} DLLElem;
+
+typedef struct {
+    DLLElem *head;
+    DLLElem *tail;
+    size_t elem_size;
+    size_t size;
+} DLL;
+
+DLL *dll(size_t elem_size);
+DLLElem *dll_elem(void *elem);
 
 /* Insert new obj at the location of obj. */
 void insert(void *obj, void *new_obj) {
@@ -19,3 +39,5 @@ void remove(void *obj) {
     if (prev_slot) prev_slot->next = next_slot;
     if (next_slot) next_slot->prev = prev_slot;
 }
+
+#endif

@@ -7,6 +7,9 @@
 
 /* DFA - find defs for each operand */
 
+/* TODO - build mapping of each var and its def locations. */
+/* TODO - a round of simple reaching defs. */
+
 Array<size_t> root(operand_pool_size); // Heap array
 Array<size_t> rank(operand_pool_size);
 for (int i; i < root.size(); i++) root[i] = i;

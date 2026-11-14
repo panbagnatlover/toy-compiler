@@ -8,9 +8,9 @@
 #include "dict.h"
 
 typedef struct {
-    int ind;
+    int ind;  // TODO: every var must be indexed
     bool is_temp; /* TODO - may not need this */
-    char *name;
+    char *name;  // TODO: no need for this
     Type *type;
 } Symbol;
 

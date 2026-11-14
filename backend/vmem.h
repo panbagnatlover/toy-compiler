@@ -17,21 +17,17 @@ typedef struct VMemory {
             Const offset;
             Set<Memory *>must_alias; // TODO - bitset
             Set<Memory *>may_alias;
-        };
+        } con_offset;
 
         struct {
             VRegister reg;
             VRegister offset;
             Set<Memory *>must_alias; // TODO - bitset
             Set<Memory *>may_alias;
-        };
-    }
+        } reg_offset;
+    } mem;
 
     MInst *inst;
-
-    prececessors;
-    latencies;  // Changes by instruction
-    successors;
 };
 
 #endif

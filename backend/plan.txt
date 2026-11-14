@@ -13,13 +13,13 @@ to the middle of a loop.
 variable { // location of memory addresses
     bool is_reg; // whether the variable is a virtual register
     type;  // memory, int, float, array, etc.
-    name;
+    ind;  // unique identifier
     int location; // if is_reg, location is a register; else, stack offset
 };
 
 operand {
     union {
-        *variable;
+        *var;
 
         constant {
             type;
@@ -33,6 +33,11 @@ operand {
 }
 
 Modules:
+
+TODO
+- allow assigning fixed array size
+- implement instructions in block as DLL
+- use ind as pool ind? Do we ever reindex instructions in pool?
 
 TODO:
 - Super deprioritized:
@@ -66,13 +71,7 @@ TODO:
 Input: array of IR instructions for each procedure
 Output: CFG for each procedure
 
-2. Local optimization round
-- TODO: Before this, loop indexing?
-- ...
-- Dead code removal, assuming all variables are live on exit
-- CFG simplification
-
-3. SSA lifting round here.
+2. SSA lifting round here.
 x = &y
 z = x
 ...
@@ -83,19 +82,23 @@ Allow for more precise point-to sets.
 - Identify webs
 - Rename variables belonging to different webs
 
-4. Analysis involving memory: ICFG + pointer analysis
+3. ICFG + pointer analysis
 TODO: intraprocedural analysis taking into account functions
-TODO: also need a mapping variable <> pt(mem(variable))
 - Flow insensitive (Andersen), 1-context sensitive
-- Output: Memory -> bitVector of Memories, MUST or MAY;
-val()
+- Output: Memory -> pointed-to Memories, MUST or MAY;
+val(), MUST or MAY;
+- (p1) Memory safety feature
 - constant propagation + register promotion
+
+4. copy propagation + DCE
+- copy propagation first
 - Apply live analysis involving memory
 - eliminate dead code
 
 5. Additional DFA analysis without memory
 - CSE, etc.
 - TODO deprioritized: loop invariant analysis etc.
+- DCE again
 - run CFG simplification
 
 6. Before backend:
@@ -107,34 +110,36 @@ val()
 Input: DAG for each CFG for each procedure
 Output: CFG with lowered instructions with virtual registers
 
-8. Index loops
-- Create Loop and index info at block level.
-For each loop, create placeholder blocks for critical edges.
+8. Interlude
+- Run live variable analysis on vregs and tag block-level
+live-in and live-out. Note that DFA is needed since non-SSA.
+Create slot objects and store liveness info in slots.
+- Create block info, inst info, slot, etc.
 
-9. Build live intervals
-- Create block info, instruction info, slot objects
-- Run live variable analysis on vregs and tag
- * block-level live-in and live-out. Note that DFA
- * is needed since non-SSA.
+9. 1st round scheduling
+
+10. Build live intervals
 - Build live intervals for each vreg and index uses and defs.
 
-10. 1st round scheduling
+11. Index loops
+- Create Loop and index info at block level.
 
-11. Register allocation
+12. Register allocation
 Input: CFG with lowered instructions with virtual registers
 Output: CFG with updated instructions with actual registers
 - When splitting, if empty block buffer is filled,
 need to trigger global renumbering
 - CFG simplification
 
-12. Peephole optimization
+13. Peephole optimization
 - Remove redundant LD, ST, etc.
 - Same as combiner logic?
 
-13. 2nd round scheduling
+14. 2nd round scheduling
 - Without register awareness
+- No need to update slot objects, etc.
 
-14. Flatten blocks
+15. Flatten blocks
 Input: CFG for each procedure with fully lowered instructions
 Output: flattened instructions for each procedure
 
@@ -185,8 +190,6 @@ TODO: peephole implementation - same as some
 combiner rules?
 
 TODO: make loop discovery, CFG simplification, etc., generic
-
-TODO: precise rule for register aware scheduling
 
 TODO: profiling to populate loop and branch frequency
 
