@@ -14,26 +14,34 @@
 #include "stdlib.h"
 
 typedef struct {
-    enum {CONST, NAV, ERR_VAL, ALL_VAL} type;
-    size_t val;
+    enum { NO_VAL = 0, VAL, NAI, ALL_VAL } type;
+    size_t value;
 } Val;
 
 typedef struct {
-    enum {MEM, NAP, NULL_MEM, ERR_MEM, ALL_MEM} type;
-    Var *base;
+    enum { NO_MEM = 0, MEM, ERR_MEM, ALL_MEM } type;
+    Var *base; // If NULL, NULL.
     Val offset;
 } Memory;
 
 typedef enum {
     NO_VAL = 0,
+    MUST_VAL,
+    MUST_NAI,
     MAY_VAL,
-    MUST_VAL
+    MAY_NAI,
+    MAY_ALL_VAL,
+    MAY_ALL_NAI
 } ValType;
 
 typedef enum {
-    NO_ALIAS = 0,
-    MAY_ALIAS,
-    MUST_ALIAS
+    NO_MEM = 0,
+    MUST_MEM,
+    MAY_MEM,
+    MAY_ALL_MEM
 } AliasType;
+
+bool eq_val(Val a, Val b);
+bool eq_mem(Memory a, Memory b);
 
 #endif

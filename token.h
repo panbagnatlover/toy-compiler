@@ -3,9 +3,7 @@
 #ifndef H_TOKEN
 #define H_TOKEN
 
-#include <stdbool.h>
 #include "type.h"
-#include "context.h"
 
 typedef enum {
     EOF_TOKEN   = 0,

@@ -4,8 +4,6 @@
 #ifndef H_TYPE
 #define H_TYPE
 
-#include <stdbool.h>
-
 typedef enum {
     T_INT = 1,
     T_BOOL,
@@ -13,10 +11,10 @@ typedef enum {
     T_ARRAY
 } TypeID;
 
-typedef struct Type {
+typedef struct {
     TypeID id;
     int width;
-    struct Type *elem;
+    Type *elem;
 } Type;
 
 #endif

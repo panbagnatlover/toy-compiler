@@ -8,7 +8,7 @@
  * TODO: at the end, run a round of CFG simplification. */
 
 #include "block.h"
-#include "mem.h"
+#include "memory.h"
 
 #define MAX_PROCESS_COUNT 5
 
@@ -333,6 +333,8 @@ void rule1_combine(MInst *entr, Set<MInst *> &changed, Set<MInst *> &removed) {
 }
 
 /* Returns MUST_ALIAS, MAY_ALIAS, or NO_ALIAS. */
+/* TODO - size as a param as opposed to an attribute of
+ * mem. */
 AliasType alias(VMem *a, VMem *b) {
     /* If both are variables, directly compare the variables. */
     if (a->type == b->type && a->type == VAR) {
@@ -367,9 +369,7 @@ AliasType alias(VMem *a, VMem *b) {
     for (l in a->may_alias) {
         for (r in b->may_alias) {
             if (
-                l->type == PT_OFFSET
-                && r->type == PT_OFFSET
-                && l->base == r->base
+                l->base == r->base
                 && l->offset + l->size > r->offset
                 && l->offset < r->offset + r->size
             ) return MAY_ALIAS;

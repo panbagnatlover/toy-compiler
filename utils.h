@@ -58,7 +58,6 @@ void free_sym_table_array_obj(void *item);
 
 /* Labels */
 Label *newlabel(Context *c);
-void evalabel(Label *l, Context *c);
 
 /* Operands */
 Operand bool_operand(bool val);
