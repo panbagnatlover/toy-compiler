@@ -1,4 +1,4 @@
-/* Symbol table */
+/* Var table */
 
 #ifndef H_SYMBOL
 #define H_SYMBOL
@@ -12,7 +12,7 @@ typedef struct {
     bool is_temp; /* TODO - may not need this */
     char *name;  // TODO: no need for this
     Type *type;
-} Symbol;
+} Var;
 
 typedef struct {
     Dict *dict;

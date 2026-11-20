@@ -4,7 +4,7 @@
 #include "error.h"
 #include "type.h"
 #include "node.h"
-#include "symbol.h"
+#include "var.h"
 #include "label.h"
 #include "operand.h"
 #include "context.h"
@@ -428,7 +428,7 @@ Node *id_node(char *name, int line, Context *c) {
     n.type = NULL;
     n.line = line;
     n.id.name = name;
-    n.id.symbol = NULL;
+    n.id.var = NULL;
     ArenaRef aref = push_arena(&n, 1, c->node_arena);
     if (aref.code) {
         LOG_ERR(
@@ -530,20 +530,20 @@ void free_node_block(ArenaBlock *block) {
     free(block);
 }
 
-/* Symbols & symbol tables */
+/* Vars & var tables */
 
-/* Put symbol to the symbol table located at index ind */
-ErrCode put_sym(Symbol *sym, size_t ind, Context *c) {
+/* Put var to the var table located at index ind */
+ErrCode put_sym(Var *sym, size_t ind, Context *c) {
     SymTable st = ((SymTable *) c->st_array->arr)[ind];
     return put_dict(&sym->name, &sym, st.dict);
 }
 
-/* Get a symbol from symbol table by traversing
- * parent scopes. Returns Symbol if there's a declared
+/* Get a var from var table by traversing
+ * parent scopes. Returns Var if there's a declared
  * ID in any of the parent scopes, else NULL */
-Symbol *get_sym(char *name, size_t ind, Context *c) {
+Var *get_sym(char *name, size_t ind, Context *c) {
     SymTable st = ((SymTable *) c->st_array->arr)[ind];
-    Symbol *dst;
+    Var *dst;
     ErrCode e = get_dict(&name, &dst, st.dict);
     while (e == KEY_NOT_FOUND) {
         ind = st.parent_ind;
@@ -559,17 +559,17 @@ Symbol *get_sym(char *name, size_t ind, Context *c) {
     return dst;
 }
 
-/* Create a new symbol in arena */
-Symbol *newsym(char *name, Type *type, Context *c) {
-    Symbol s;
+/* Create a new var in arena */
+Var *newsym(char *name, Type *type, Context *c) {
+    Var s;
     s.name = name;
     s.type = type;
-    s.ind = c->symbol_arena->total_occupied;
+    s.ind = c->var_arena->total_occupied;
     s.is_temp = false;
-    ArenaRef aref = push_arena(&s, 1, c->symbol_arena);
+    ArenaRef aref = push_arena(&s, 1, c->var_arena);
     if (aref.code) {
         LOG_ERR(
-            "Failed to push symbol to arena. Error code: %d.",
+            "Failed to push var to arena. Error code: %d.",
             aref.code
         );
         return NULL;
@@ -578,13 +578,13 @@ Symbol *newsym(char *name, Type *type, Context *c) {
 }
 
 /* Create a new temporary in arena */
-Symbol *newtemp(Type *type, Context *c) {
-    Symbol t;
+Var *newtemp(Type *type, Context *c) {
+    Var t;
     t.name = NULL;
     t.type = type;
-    t.ind = c->symbol_arena->total_occupied;
+    t.ind = c->var_arena->total_occupied;
     t.is_temp = true;
-    ArenaRef aref = push_arena(&t, 1, c->symbol_arena);
+    ArenaRef aref = push_arena(&t, 1, c->var_arena);
     if (aref.code) {
         LOG_ERR(
             "Failed to push temporary to arena. Error code: %d.",
@@ -595,17 +595,17 @@ Symbol *newtemp(Type *type, Context *c) {
     return aref.ref;
 }
 
-/* Create a new symbol table in the symbol table array entry */
+/* Create a new var table in the var table array entry */
 ErrCode sym_table(size_t parent_ind, Context *c) {
     ErrCode e;
     SymTable st;
     st.dict = dict(
         sizeof(char *), alignof(char *),
-        sizeof(Symbol *), alignof(Symbol *),
+        sizeof(Var *), alignof(Var *),
         str_intern_hash, str_intern_comp
     );
     if (!st.dict) {
-        LOG_ERR("Failed to create symbol table dict.");
+        LOG_ERR("Failed to create var table dict.");
         return MEMORY_ALLOC;
     }
     st.parent_ind = parent_ind;
@@ -629,7 +629,7 @@ bool str_intern_comp(const void *a, const void *b) {
     return *(char **) a == *(char **) b;
 }
 
-/* Function to free symbol table array object. */
+/* Function to free var table array object. */
 void free_sym_table_array_obj(void *item) {
     SymTable *s = (SymTable *) item;
     if (s->dict) free_dict(s->dict);
@@ -678,17 +678,17 @@ Operand float_operand(float val) {
     return o;
 }
 
-Operand var_operand(Symbol *var) {
+Operand var_operand(Var *var) {
     Operand o;
     o.id = VAR;
-    o.symbol = var;
+    o.var = var;
     return o;
 }
 
-Operand temp_operand(Symbol *t) {
+Operand temp_operand(Var *t) {
     Operand o;
     o.id = TEMP;
-    o.symbol = t;
+    o.var = t;
     return o;
 }
 

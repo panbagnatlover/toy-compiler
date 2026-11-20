@@ -20,7 +20,7 @@
 #include <stdbool.h>
 #include "type.h"
 #include "node.h"
-#include "symbol.h"
+#include "var.h"
 #include "label.h"
 #include "operand.h"
 #include "context.h"
@@ -51,10 +51,10 @@ void print_operand(Operand a) {
             }
             break;
         case VAR:
-            printf("%s", a.symbol->name);
+            printf("%s", a.var->name);
             break;
         case TEMP:
-            printf("t%d", a.symbol->ind);
+            printf("t%d", a.var->ind);
             break;
         default: printf("err");
     }
@@ -201,7 +201,7 @@ Operand to_val(Node *cond, Context *c) {
     ErrCode e = cond_3ac(cond, b_true, b_false, c); if (e) return err_operand();
 
     /* Create a new boolean temp */
-    Symbol *t = newtemp(c->bool_type, c); if (!t) return err_operand();
+    Var *t = newtemp(c->bool_type, c); if (!t) return err_operand();
     Operand t_op = temp_operand(t);
 
     /* temp = true */
@@ -268,7 +268,7 @@ Operand expr_3ac(Node *expr, Context *c) {
         case N_BOOL:            return bool_operand(expr->boo.value);
         case N_NUM:             return num_operand(expr->num.value);
         case N_FLO:             return float_operand(expr->flo.value);
-        case N_ID:              return var_operand(expr->id.symbol);
+        case N_ID:              return var_operand(expr->id.var);
         default:
             LOG_DBG("Input node is not an expr node.");
             return err_operand();
@@ -371,7 +371,7 @@ Operand arith_3ac(Node *node, Context *c) {
     Operand l = expr_3ac(node->arith.left, c);
     Operand r = expr_3ac(node->arith.right, c);
 
-    Symbol *t = newtemp(node->type, c); if (!t) return err_operand();
+    Var *t = newtemp(node->type, c); if (!t) return err_operand();
     Operand t_op = temp_operand(t);
 
     emit_quad(t_op, node->arith.op, l, r);
@@ -389,7 +389,7 @@ Operand unary_value_3ac(Node *node, Context *c) {
         return err_operand();
     }
 
-    Symbol *t = newtemp(node->type, c); if (!t) return err_operand();
+    Var *t = newtemp(node->type, c); if (!t) return err_operand();
 
     Operand t_op = temp_operand(t);
     Operand r = expr_3ac(node->unary.child, c);
@@ -403,7 +403,7 @@ Operand neg_3ac(Node *node, Context *c) {
     Operand r = expr_3ac(node->unary.child, c);
     if (r.id == ERR_OPERAND) return r;
 
-    Symbol *t = newtemp(node->type, c); if (!t) return err_operand();
+    Var *t = newtemp(node->type, c); if (!t) return err_operand();
     Operand t_op = temp_operand(t);
 
     emit_unary(t_op, U_NEG, r);
@@ -419,9 +419,9 @@ Operand loc_value_3ac(Node *node, Context *c) {
     if (offset.id == ERR_OPERAND) return offset;
 
     Node *base = node->loc.base;
-    Operand base_op = var_operand(base->id.symbol);
+    Operand base_op = var_operand(base->id.var);
 
-    Symbol *t = newtemp(node->type, c); if (!t) return err_operand();
+    Var *t = newtemp(node->type, c); if (!t) return err_operand();
     Operand t_op = temp_operand(t);
 
     emit_quad(t_op, O_ACC, base_op, offset);
@@ -444,7 +444,7 @@ Operand loc_offset_3ac(Node *node, Context *c) {
     /* If left node is the base address, offset
      * is index times width of the top-level element */
     if (left->node_id == N_ID) {
-        Symbol *t = newtemp(c->int_type, c); if (!t) return err_operand();
+        Var *t = newtemp(c->int_type, c); if (!t) return err_operand();
         Operand t_op = temp_operand(t);
         emit_quad(t_op, O_MUL, width, unit);
         return t_op;
@@ -455,11 +455,11 @@ Operand loc_offset_3ac(Node *node, Context *c) {
     Operand base = loc_offset_3ac(left, c);
     if (base.id == ERR_OPERAND) return base;
 
-    Symbol *t1 = newtemp(c->int_type, c); if (!t1) return err_operand();
+    Var *t1 = newtemp(c->int_type, c); if (!t1) return err_operand();
     Operand t1_op = temp_operand(t1);
     emit_quad(t1_op, O_MUL, width, unit);
 
-    Symbol *t2 = newtemp(c->int_type, c); if (!t2) return err_operand();
+    Var *t2 = newtemp(c->int_type, c); if (!t2) return err_operand();
     Operand t2_op = temp_operand(t2);
     emit_quad(t2_op, O_PLU, base, t1_op);
     return t2_op;
@@ -473,7 +473,7 @@ ErrCode assign_3ac(Node *node, Context *c) {
     /* If left node represents a base variable,
      * assign the rvalue to it */
     if (left->node_id == N_ID) {
-        Operand lvalue = var_operand(left->id.symbol);
+        Operand lvalue = var_operand(left->id.var);
         emit_assign(lvalue, rvalue);
     }
     /* If left node represents array access,
@@ -483,7 +483,7 @@ ErrCode assign_3ac(Node *node, Context *c) {
         if (offset.id == ERR_OPERAND) return INTERNAL_ERR;
 
         Node *base = left->loc.base;
-        Operand base_op = var_operand(base->id.symbol);
+        Operand base_op = var_operand(base->id.var);
         emit_assign_acc(base_op, offset, rvalue);
     }
 

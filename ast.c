@@ -5,8 +5,8 @@
  * with a type and check type compatibility in assignment.
  * - Type coersion adds a CAST node to coerce a node
  * into another type, or replaces node.type directly.
- * - Scope checking involves creating symbols for
- * each ID, push to the symbol table in scope,
+ * - Scope checking involves creating vars for
+ * each ID, push to the var table in scope,
  * and validate their scope during assignment. 
  * - Control flow identification involves identifying
  * whether a boolean node is an expression or
@@ -30,7 +30,7 @@
 
 #include <stdio.h>
 #include "ast.h"
-#include "symbol.h"
+#include "var.h"
 #include "context.h"
 #include "utils.h"
 #include "log.h"
@@ -544,14 +544,14 @@ ErrCode stmt_analyzer(Node *node, size_t curr, Context *c) {
 Node *id_analyzer(Node *node, size_t curr, Context *c) {
     char *name = node->id.name;
 
-    /* Ensure the symbol is declared in some prev scope */
-    Symbol *s = get_sym(name, curr, c);
+    /* Ensure the var is declared in some prev scope */
+    Var *s = get_sym(name, curr, c);
     if (!s) {
         EMIT_SEMANTIC_ERR(
             node->line, "Variable has not been declared."
         );
     }
-    node->id.symbol = s;
+    node->id.var = s;
     node->type = s->type;
     return node;
 }
@@ -594,7 +594,7 @@ Node *arith_analyzer(Node *node, size_t curr, Context *c) {
 /* Returns a value node */
 Node *loc_analyzer(Node *node, size_t curr, Context *c) {
     /* If node is a leaf ID node, check if it exists
-     * in the symbol table */
+     * in the var table */
     if (node->node_id == N_ID) 
         return id_analyzer(node, curr, c);
 
@@ -806,18 +806,18 @@ ErrCode decl_analyzer(Node *node, size_t curr, Context *c) {
         EMIT_SEMANTIC_ERR(node->line, "Variable already exists in scope.");
     }
 
-    /* Create new symbol and push to symbol table */
-    Symbol *s = newsym(id->id.name, node->decl.type, c);
+    /* Create new var and push to var table */
+    Var *s = newsym(id->id.name, node->decl.type, c);
     if (!s) return INTERNAL_ERR;
 
     ErrCode e = put_sym(s, curr, c);
     if (e) {
-        LOG_ERR("Failed to put symbol in symbol table. Error code: %d.", e);
+        LOG_ERR("Failed to put var in var table. Error code: %d.", e);
         return e;
     }
 
-    /* Set id node's symbol attribute */
-    id->id.symbol = s;
+    /* Set id node's var attribute */
+    id->id.var = s;
 
     return NO_ERR;
 }
@@ -826,7 +826,7 @@ ErrCode block_analyzer(Node *node, size_t prev_st, Context *c) {
     /* Create new scope */
     ErrCode e = sym_table(prev_st, c);
     if (e) {
-        LOG_ERR("Failed to create new symbol table scope.");
+        LOG_ERR("Failed to create new var table scope.");
         return e;
     }
     size_t curr = c->st_array->size - 1;

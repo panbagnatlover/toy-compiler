@@ -4,6 +4,10 @@
  * 
  * Decision: instead of bitmap, use arena for mem state
  * objects. Use capped dynamic arrays for pt sets.
+ * All raw mem address (e.g., x = 0x12345) is removed
+ * from 3ac. x is treated as a global var located at 0x12345,
+ * so does not need to account for this situation.
+ * Similarly, cannot have x = NULL + y, etc.
  * 
  * If a pt set has ALL_MEM, pt set = {ALL_MEM}.
  * 
@@ -52,6 +56,7 @@
 #include "arena.h"
 #include "dfa.h"
 #include "memory.h"
+#include "inst.h"
 
 /* If val(x) can take on more than 10 constants,
  * set val(x) = ALL_VAL. */
@@ -82,6 +87,15 @@ typedef struct {
 } AliasState;
 
 void i(void *) {};
+
+void *init_state(void) {
+    Arena *objs = arena(sizeof(MemStateObj), 256, i);
+    Array *map = array(sizeof(Array *), free_array);  // TODO: initialize to VAR_POOL * 2
+    AliasState *state = malloc(sizeof(AliasState));
+    state->map = map;
+    state->objs = objs;
+    return (void *) state;
+}
 
 /* Seed ERR_MEM and ALL_MEM. */
 void seed_memories(AliasState *state) {
@@ -488,61 +502,330 @@ bool meet_val_set(MemStateObj *a, MemStateObj *b, AliasState *state) {
     return changed;
 }
 
-void *init_state(void) {
-    Arena *objs = arena(sizeof(MemStateObj), 256, i);
-    Array *map = array(sizeof(Array *), free_array);  // TODO: initialize to VAR_POOL * 2
-    AliasState *state = malloc(sizeof(AliasState));
-    state->map = map;
-    state->objs = objs;
-    return (void *) state;
-}
+// TODO: need to free temp array size if needed.
 
-// x = y op z
-bool tf_quad(Inst *inst, AliasState *state) {
-    MemStateObj *x_obj = get_mem_state(inst->lhs, 0, state);
-    if (y and z are constants) {
-        if (y or z not integer) {
-            union_alias(x_obj, MUST_ALIAS, array with err);
-            union_val(x_obj, MUST_ALIAS, NAI_VAL);
+/* Transfer function for x = y: pt(x) = pt(x) meet pt(y). */
+bool tf_copy(Inst *inst, AliasState *state) {
+    bool changed = false;
+
+    Operand lhs = inst->lhs;
+    Operand rhs = inst->rhs;
+
+    /* Get LHS's memory object. */
+    Val offset; offset.type = VAL; offset.value = 0;
+    MemStateObj *l = get_mem(lhs.var, offset, state);
+    if (!l) l = create_mem(lhs.var, offset, state);
+
+    if (rhs.type == CONST) {
+        /* Create a temp memory object. */
+        MemStateObj t;
+        t.pt_set.alias_type = MUST_MEM;
+        t.pt_set.pt_set = get_err_mem(state);
+
+        if (rhs.constant.type == INT) {
+            t.val_set.val_type = MUST_VAL;
+            t.val_set.val_set = array containing rhs.constant.value;
         }
         else {
-            union_alias(x_obj, MUST_ALIAS, array with err);
-            union_val(x_obj, MUST_ALIAS, y op z);
+            t.val_set.val_type = MUST_NAI;
+            t.val_set.val_set = array containing NAI;
+        }
+
+        changed = changed || meet_pt_set(l, &t, state);
+        changed = changed || meet_val_set(l, &t, state);
+    }
+    else {
+        /* Get RHS's memory object. */
+        MemStateObj *r = get_mem(rhs.var, offset, state);
+        if (!r) r = create_mem(rhs.var, offset, state);
+
+        changed = changed || meet_pt_set(l, r, state);
+        changed = changed || meet_val_set(l, r, state);
+    }
+
+    return changed;
+}
+
+/* Transfer function for x = &y: pt(x) = pt(x) meet MUST {x}. */
+bool tf_addr(Inst *inst, AliasState *state) {
+    bool changed = false;
+
+    Operand lhs = inst->lhs;
+    Operand rhs = inst->rhs;
+
+    /* Get LHS's memory object. */
+    Val offset; offset.type = VAL; offset.value = 0;
+    MemStateObj *l = get_mem(lhs.var, offset, state);
+    if (!l) l = create_mem(lhs.var, offset, state);
+
+    /* Get RHS's memory object. */
+    MemStateObj *r = get_mem(rhs.var, offset, state);
+    if (!r) r = create_mem(rhs.var, offset, state);
+
+    /* Create a temp memory object with MUST {x} pt set
+     * and MUST_NAI val set. */
+    MemStateObj t;
+    t.pt_set.alias_type = MUST_MEM;
+    t.pt_set.pt_set = array containing r;
+    t.val_set.val_type = MUST_NAI;
+    t.val_set.val_set = array containing NAI;
+
+    changed = changed || meet_pt_set(l, &t, state);
+    changed = changed || meet_val_set(l, &t, state);
+
+    return changed;
+}
+
+/* Transfer function for x = *y:
+ * If pt(y) MUST= q, pt(q) MUST= p, pt(x) = pt(x) meet MUST {p}.
+ * If pt(y) MAY= q, pt(q) MUST= p, pt(x) = pt(x) meet MAY {p}.
+ * Else, pt(x) = pt(x) meet pt(q) for all q in pt(y). */
+bool tf_rhs_deref(Inst *inst, AliasState *state) {
+    bool changed = false;
+
+    Operand lhs = inst->lhs;
+    Operand rhs = inst->rhs;
+
+    /* Get LHS's memory object. */
+    Val offset; offset.type = VAL; offset.value = 0;
+    MemStateObj *l = get_mem(lhs.var, offset, state);
+    if (!l) l = create_mem(lhs.var, offset, state);
+
+    /* Get RHS's memory object. */
+    MemStateObj *r = get_mem(rhs.var, offset, state);
+    if (!r) r = create_mem(rhs.var, offset, state);
+
+    if (r->pt_set.alias_type == MUST_MEM || r->pt_set.alias_type == MAY_ALL_MEM) {
+        MemStateObj *q = (MemStateObj *) r->pt_set.pt_set;
+        changed = changed || meet_pt_set(l, q, state);
+        changed = changed || val_pt_set(l, q, state);
+    }
+    else {
+        Array *pt_set = (Array *) r->pt_set.pt_set;
+        MemStateObj **arr = (MemStateObj **) pt_set->arr;
+
+        for (int i = 0; i < pt_set->size; i++) {
+            changed = changed || meet_pt_set(l, arr[i], state);
+            changed = changed || val_pt_set(l, arr[i], state);
+        }
+
+        /* pt(LHS) cannot have a MUST relationship if
+         * pt(RHS) has a MAY relationship. Same for Val(). */
+        if (l->pt_set.alias_type == MUST_MEM) {
+            changed = true;
+            l->pt_set.alias_type = MAY_MEM;
+        }
+        if (l->val_set.val_type == MUST_VAL) {
+            changed = true;
+            l->val_set.val_type = MAY_VAL;
+        }
+        if (l->val_set.val_type == MAY_NAI) {
+            changed = true;
+            l->val_set.val_type = MAY_NAI;
         }
     }
-    else if (y or z is constant) {
-        c = whatever is constant;
-        v = whatever is not constant;
-        
-        MemStateObj *v_obj = get_mem_state(v, 0, state);
-        if (!v_obj) create_mem_state(v, 0, state);
 
-        if (c MUST= NAI) {
-            union_pt_set(x_obj, MUST_ALIAS, array with err);
-        }
-        else if (c MAY= NAI) {
-            union_pt_set(x_obj, MAY_ALIAS, array with err);
-        }
+    return changed;
+}
 
-        if (v_obj->alias_type == MUST_ALIAS && err in v_obj->pt_set) {
-            union_pt_set(x_obj, MUST_ALIAS, array with err);
+/* Transfer function for *x = y:
+ * If pt(x) MUST= q, pt(y) MUST= p, pt(q) = pt(q) meet MUST {p}.
+ * If pt(x) MAY= q, pt(y) MUST= p, pt(q) = pt(q) meet MAY {p}.
+ * Else, pt(q) = pt(q) meet pt(y) for all q in pt(x). */
+bool tf_lhs_deref(Inst *inst, AliasState *state) {
+    bool changed = false;
+
+    Operand lhs = inst->lhs;
+    Operand rhs = inst->rhs;
+
+    /* Get LHS's memory object. */
+    Val offset; offset.type = VAL; offset.value = 0;
+    MemStateObj *l = get_mem(lhs.var, offset, state);
+    if (!l) l = create_mem(lhs.var, offset, state);
+
+    /* Get RHS's memory object. */
+    MemStateObj *r = get_mem(rhs.var, offset, state);
+    if (!r) r = create_mem(rhs.var, offset, state);
+
+    if (l->pt_set.alias_type == MUST_MEM || l->pt_set.alias_type == MAY_ALL_MEM) {
+        MemStateObj *q = (MemStateObj *) l->pt_set.pt_set;
+        changed = changed || meet_pt_set(q, r, state);
+        changed = changed || val_pt_set(q, r, state);
+    }
+    else {
+        Array *pt_set = (Array *) l->pt_set.pt_set;
+        MemStateObj **arr = (MemStateObj **) pt_set->arr;
+
+        for (int i = 0; i < pt_set->size; i++) {
+            changed = changed || meet_pt_set(arr[i], r, state);
+            changed = changed || val_pt_set(arr[i], r, state);
+
+            /* pt(LHS) cannot have a MUST relationship if
+            * pt(RHS) has a MAY relationship. Same for val(). */
+            if (arr[i]->pt_set.alias_type == MUST_MEM) {
+                changed = true;
+                arr[i]->pt_set.alias_type = MAY_MEM;
+            }
+            if (arr[i]->val_set.val_type == MUST_VAL) {
+                changed = true;
+                arr[i]->val_set.val_type = MAY_VAL;
+            }
+            if (arr[i]->val_set.val_type == MAY_NAI) {
+                changed = true;
+                arr[i]->val_set.val_type = MAY_NAI;
+            }
         }
-        else if (v_obj->alias_type == MUST_ALIAS) {
-            union_pt_set(x_obj, MUST_ALIAS, v_obj->pt_set);
+    }
+
+    return changed;
+}
+
+/* Assumes a is a mem and b is an offset. */
+PointToSet _op_mem(MemStateObj *a, MemStateObj *b, Op op, AliasState *state) {
+    PointToSet ret;
+
+    if (
+        a->pt_set.alias_type == NO_MEM
+        || b->val_set.val_type == NO_VAL
+    ) {
+        ret.alias_type = NO_MEM;
+        ret.pt_set = NULL;
+    }
+    else if (
+        (a->pt_set.alias_type == MUST_MEM && contains err)
+        || b->val_set.val_type == MUST_NAI
+    ) {
+        ret.alias_type = MUST_MEM;
+        ret.pt_set = array with err;
+    }
+    else if (a->pt_set.alias_type == MAY_ALL_MEM) {
+        ret.alias_type = MAY_ALL_MEM;
+        ret.pt_set = a->pt_set.pt_set;
+        return ret;
+    }
+    else if (a->pt_set.alias_type == MUST_MEM) {
+        MemStateObj *obj = first obj from a->pt_set.pt_set;
+
+        if (b->val_set.val_type == MUST_VAL) {
+            ret.alias_type = MUST_MEM;
+
+            Val offset = obj->mem.offset op first val from b->val_set.val_set;
+            MemStateObj *new = get_mem(obj->mem.base, offset, state);
+            if (!new) new = create_mem(obj->mem.base, offset, state);
+
+            ret.pt_set = array with new;
         }
-        else if (all in pt set) {
-            // TODO - pt(x) MAY ALIAS, pt(x) = ALL
-        }
-        // TODO - add condition for MAY err?
-        else if (v_obj->alias_type == MAY_ALIAS) {
-            union_pt_set(x_obj, MAY_ALIAS, v_obj->pt_set);
+        else {
+            ret.alias_type = MAY_MEM;
+            ret.pt_set = array(sizeof(MemStateObj *), i);
+
+            Array *val_set = b->val_set.val_set;
+            Val *arr = (Val *) val_set->arr;
+            for (int i = 0; i < val_set->size; i++) {
+                if (arr[i].type == NAI) {
+                    MemStateObj *err = get_err_mem(state);
+                    push_array(&err, ret.pt_set);
+                }
+                else if (arr[i].type == ALL_VAL) {
+                    Val offset = arr[i];
+                    MemStateObj *new = get_mem(obj->mem.base, offset, state);
+                    if (!new) new = create_mem(obj->mem.base, offset, state);
+                    push_array(&new, ret.pt_set);
+                }
+                else if (arr[i].type == VAL) {
+                    Val offset = obj->mem.offset op arr[i];
+                    MemStateObj *new = get_mem(obj->mem.base, offset, state);
+                    if (!new) new = create_mem(obj->mem.base, offset, state);
+                    push_array(&new, ret.pt_set);
+                }
+            }
         }
     }
     else {
-        if ()
-    }
+        ret.alias_type = MAY_MEM;
+        ret.pt_set = array(sizeof(MemStateObj *), i);
 
-    // At the end, union with mem(x, ALL_VAL)
+        Array *pt_set = a->pt_set.pt_set;
+        MemStateObj **mem_arr = (MemStateObj **) pt_set->arr;
+
+        Array *val_set = b->val_set.val_set;
+        Val *val_arr = (Val *) val_set->arr;
+
+        if (err in mem_arr || NAI in val_arr) {
+            MemStateObj *err = get_err_mem(state);
+            push_array(&err, ret.pt_set);
+        }
+
+        for (obj in mem_arr other than err) {
+            for (val in val_arr other than NAI) {
+                Val offset = obj->mem.offset op val;
+                MemStateObj *new = get_mem(obj->mem.base, offset, state);
+                if (!new) new = create_mem(obj->mem.base, offset, state);
+                push_array(&new, ret.pt_set);
+            }
+        }
+    }
+    return ret;
+}
+
+ValSet _op_val(MemStateObj *a, MemStateObj *b, Op op) {
+
+}
+
+/* Transfer function for x = y op z:
+ * Needs to handle the case where y is mem base and z
+ * val, z is mem base and y is val, both are mem bases,
+ * and both are vals. */
+bool tf_quad(Inst *inst, AliasState *state) {
+    bool changed = false;
+
+    Operand lhs = inst->lhs;
+    Operand rhs1 = inst->rhs1;
+    Operand rhs2 = inst->rhs2;
+
+    /* Get LHS's memory object. */
+    Val offset; offset.type = VAL; offset.value = 0;
+    MemStateObj *l = get_mem(lhs.var, offset, state);
+    if (!l) l = create_mem(lhs.var, offset, state);
+
+    MemStateObj t;
+
+    /* If both rhs operands are constants... */
+    if (rhs1.type == CONST && rhs2.type == CONST) {
+        t.pt_set.alias_type = MUST_MEM;
+        t.pt_set.pt_set = get_err_mem(state);
+
+        if (rhs1.constant.type == INT && rhs2.constant.type == INT) {
+            t.val_set.val_type = MUST_VAL;
+            t.val_set.val_set = array containing rhs1.constant.value + rh2.constant.value;
+        }
+        else {
+            t.val_set.val_type = MUST_NAI;
+            t.val_set.val_set = array containing NAI;
+        }
+
+        changed = changed || meet_pt_set(l, &t, state);
+        changed = changed || meet_val_set(l, &t, state);
+    }
+    /* If either rhs operand is a constant... */
+    else if (rhs1.type == CONST) {
+        // TODO - start here: create mem object for rhs2
+        t.pt_set = _op_mem(rhs1, )
+    }
+    else if z is constant {
+
+    }
+    else if both are mem type {
+
+    }
+    else if y is mem {
+    }
+    else if z is mem {
+    }
+    else {
+        /* Both y, z are scalar values. */
+
+    }
 }
 
 bool tf(void *b, void *s) {

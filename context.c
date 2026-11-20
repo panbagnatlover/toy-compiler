@@ -6,7 +6,7 @@
 #include "type.h"
 #include "token.h"
 #include "node.h"
-#include "symbol.h"
+#include "var.h"
 #include "label.h"
 #include "utils.h"
 #include "log.h"
@@ -17,7 +17,7 @@ Context *init_context(void) {
     Arena *str_arena = NULL;
     Arena *type_arena = NULL;
     Arena *node_arena = NULL;
-    Arena *symbol_arena = NULL;
+    Arena *var_arena = NULL;
     Arena *label_arena = NULL;
 
     Array *exit_stack = NULL;
@@ -72,11 +72,11 @@ Context *init_context(void) {
     node_arena = arena(sizeof(Node), ARENA_BLOCK_SIZE, free_node_block);
     if (!node_arena) goto cleanup;
 
-    LOG_DBG("Initialize symbol arena.");
+    LOG_DBG("Initialize var arena.");
 
-    // Initialize symbol arena
-    symbol_arena = arena(sizeof(Symbol), ARENA_BLOCK_SIZE, free_arena_block);
-    if (!symbol_arena) goto cleanup;
+    // Initialize var arena
+    var_arena = arena(sizeof(Var), ARENA_BLOCK_SIZE, free_arena_block);
+    if (!var_arena) goto cleanup;
 
     LOG_DBG("Initialize label arena.");
 
@@ -84,9 +84,9 @@ Context *init_context(void) {
     label_arena = arena(sizeof(Label), ARENA_BLOCK_SIZE, free_arena_block);
     if (!label_arena) goto cleanup;
 
-    LOG_DBG("Initialize symbol table array.");
+    LOG_DBG("Initialize var table array.");
 
-    // Initialize symbol table array
+    // Initialize var table array
     st_array = array(sizeof(SymTable), free_sym_table_array_obj);
     if (!st_array) goto cleanup;
 
@@ -99,7 +99,7 @@ Context *init_context(void) {
     c->str_arena = str_arena;
     c->type_arena = type_arena;
     c->node_arena = node_arena;
-    c->symbol_arena = symbol_arena;
+    c->var_arena = var_arena;
     c->label_arena = label_arena;
 
     c->st_array = st_array;
@@ -128,7 +128,7 @@ cleanup:
     free_arena(str_arena);
     free_arena(type_arena);
     free_arena(node_arena);
-    free_arena(symbol_arena);
+    free_arena(var_arena);
     free_arena(label_arena);
 
     free_array(exit_stack);
@@ -149,7 +149,7 @@ void free_context(Context *c) {
     free_arena(c->str_arena);
     free_arena(c->type_arena);
     free_arena(c->node_arena);
-    free_arena(c->symbol_arena);
+    free_arena(c->var_arena);
     free_arena(c->label_arena);
 
     LOG_DBG("Free arrays.");

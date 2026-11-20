@@ -151,7 +151,7 @@ Token scan(char *input, Context *c) {
     /* Handle alphanumeric tokens */
     if (is_alpha(head)) {
         char buffer[STR_BUFFER_SIZE]; size_t len = 0;
-        /* Greedily match alphanumeric symbols */
+        /* Greedily match alphanumeric vars */
         do {
             /* If string is longer than buffer cap,
              * return error. Next scan() will

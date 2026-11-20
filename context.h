@@ -20,14 +20,14 @@
  *          is created for each statement / expression
  *          in the source code. Therefore, Nodes can
  *          have duplicate signatures.
- * Symbol:  Variables or compiler-generated temporaries.
- *          Stored in arena. A new symbol is created
+ * Var:  Variables or compiler-generated temporaries.
+ *          Stored in arena. A new var is created
  *          for each expression in the source code, if
- *          applicable. Therefore, symbols can have
+ *          applicable. Therefore, vars can have
  *          duplicate signatures.
- * Symbol Table:    Stored in an array. Referenced
+ * Var Table:    Stored in an array. Referenced
  *                  by array index. Each table has
- *                  a dict object for storing symbols
+ *                  a dict object for storing vars
  *                  in the scope it represents.
  * Label:   Stored in arena due to lazy evaluation.
  *          When a label is first created, it is
@@ -55,7 +55,7 @@
 /* Brain dump:
  * Token, node objects: create new one as you go
  * Strings for ID and keywords: hash map + arena
- * Symbols: create new one, but has hash map for st
+ * Vars: create new one, but has hash map for st
  * ST: array of ST objects
  * Types: hash map + arena
  */
@@ -81,8 +81,8 @@ typedef struct {
 
     Arena *node_arena;  // Node arena
 
-    Arena *symbol_arena;  // Symbol arena
-    Array *st_array;  // Symbol table array
+    Arena *var_arena;  // Var arena
+    Array *st_array;  // Var table array
 
     Arena *label_arena;  // Label arena
     Array *exit_stack;  // Exit label stack

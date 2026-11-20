@@ -6,7 +6,7 @@
 #include "type.h"
 #include "dict.h"
 #include "node.h"
-#include "symbol.h"
+#include "var.h"
 #include "label.h"
 #include "operand.h"
 #include "context.h"
@@ -46,11 +46,11 @@ Node *logic_node(Logic op, Node *left, Node *right, int line, Context *c);
 Node *rel_node(Rel op, Node *left, Node *right, int line, Context *c);
 Node *unary_node(Unary op, Node *child, int line, Context *c);
 
-/* Symbols */
-ErrCode put_sym(Symbol *sym, size_t ind, Context *c);
-Symbol *get_sym(char *name, size_t ind, Context *c);
-Symbol *newsym(char *name, Type *type, Context *c);
-Symbol *newtemp(Type *type, Context *c);
+/* Vars */
+ErrCode put_sym(Var *sym, size_t ind, Context *c);
+Var *get_sym(char *name, size_t ind, Context *c);
+Var *newsym(char *name, Type *type, Context *c);
+Var *newtemp(Type *type, Context *c);
 ErrCode sym_table(size_t parent_ind, Context *c);
 size_t str_intern_hash(const void *key, const size_t cap);
 bool str_intern_comp(const void *a, const void *b);
@@ -63,8 +63,8 @@ Label *newlabel(Context *c);
 Operand bool_operand(bool val);
 Operand num_operand(int val);
 Operand float_operand(float val);
-Operand var_operand(Symbol *var);
-Operand temp_operand(Symbol *t);
+Operand var_operand(Var *var);
+Operand temp_operand(Var *t);
 Operand err_operand(void);
 
 #endif

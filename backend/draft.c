@@ -24,8 +24,8 @@
  * - Need to hold information about the number of bits
  * required to hold it, and whether it represents the name
  * of an address or the address itself
- * (either by linking to symbol,
- * or by copying the symbol info into itself)
+ * (either by linking to var,
+ * or by copying the var info into itself)
  * 
  * Double Dict:
  * - Map where both sides are indexed. Key to value

@@ -5,7 +5,7 @@
 
 #include "type.h"
 #include "array.h"
-#include "symbol.h"
+#include "var.h"
 
 #define DEFAULT_NODE_ARR_SIZE 8
 
@@ -114,7 +114,7 @@ typedef struct Node {
 
         struct {
             char *name;
-            Symbol *symbol;
+            Var *var;
         } id;
 
         struct {

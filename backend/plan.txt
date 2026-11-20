@@ -48,9 +48,9 @@ TODO:
     - array
     - pointer
     - (nested) function
-    - symbol table updates
+    - var table updates
         - allow nested function scope
-        - rename symbol to variable
+        - rename var to variable
     - rename all vars / operands by procedure
     - IR nested functions
     - change variable ID from string name to a size_t index,
