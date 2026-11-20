@@ -46,11 +46,16 @@
  * In the case of:
  * t = &x + b;
  * if (cond) goto L1
- * *t = 8 bytes
  * goto L2
  * L1: *t = 12 bytes
  * Memory can have both pt or val since we don't restrict
  * type at a memory.
+ * 
+ * TODO:
+ * - insert_pt_set and insert_val_set, vs _op_val and _op_mem:
+ * param is copy or reference?
+ * - Free temp arrays correctly
+ * - custom allocation for mem and val arrays with garbage collection?
  */
 
 #include "arena.h"
@@ -681,35 +686,31 @@ bool tf_lhs_deref(Inst *inst, AliasState *state) {
 }
 
 /* Assumes a is a mem and b is an offset. */
-PointToSet _op_mem(MemStateObj *a, MemStateObj *b, Op op, AliasState *state) {
+PointToSet _op_mem(PointToSet a, ValSet b, Op op, AliasState *state) {
     PointToSet ret;
 
-    if (
-        a->pt_set.alias_type == NO_MEM
-        || b->val_set.val_type == NO_VAL
-    ) {
+    if (a.alias_type == NO_MEM || b.val_type == NO_VAL) {
         ret.alias_type = NO_MEM;
         ret.pt_set = NULL;
     }
     else if (
-        (a->pt_set.alias_type == MUST_MEM && contains err)
-        || b->val_set.val_type == MUST_NAI
+        (a.alias_type == MUST_MEM && contains err) || b.val_type == MUST_NAI
     ) {
         ret.alias_type = MUST_MEM;
         ret.pt_set = array with err;
     }
-    else if (a->pt_set.alias_type == MAY_ALL_MEM) {
+    else if (a.alias_type == MAY_ALL_MEM) {
         ret.alias_type = MAY_ALL_MEM;
-        ret.pt_set = a->pt_set.pt_set;
+        ret.pt_set = a.pt_set;
         return ret;
     }
-    else if (a->pt_set.alias_type == MUST_MEM) {
-        MemStateObj *obj = first obj from a->pt_set.pt_set;
+    else if (a.alias_type == MUST_MEM) {
+        MemStateObj *obj = first obj from a.pt_set;
 
-        if (b->val_set.val_type == MUST_VAL) {
+        if (b.val_type == MUST_VAL) {
             ret.alias_type = MUST_MEM;
 
-            Val offset = obj->mem.offset op first val from b->val_set.val_set;
+            Val offset = obj->mem.offset op first val from b.val_set;
             MemStateObj *new = get_mem(obj->mem.base, offset, state);
             if (!new) new = create_mem(obj->mem.base, offset, state);
 
@@ -719,24 +720,24 @@ PointToSet _op_mem(MemStateObj *a, MemStateObj *b, Op op, AliasState *state) {
             ret.alias_type = MAY_MEM;
             ret.pt_set = array(sizeof(MemStateObj *), i);
 
-            Array *val_set = b->val_set.val_set;
+            Array *val_set = b.val_set;
             Val *arr = (Val *) val_set->arr;
             for (int i = 0; i < val_set->size; i++) {
                 if (arr[i].type == NAI) {
                     MemStateObj *err = get_err_mem(state);
-                    push_array(&err, ret.pt_set);
+                    insert_pt_set(&ret, err);
                 }
                 else if (arr[i].type == ALL_VAL) {
                     Val offset = arr[i];
                     MemStateObj *new = get_mem(obj->mem.base, offset, state);
                     if (!new) new = create_mem(obj->mem.base, offset, state);
-                    push_array(&new, ret.pt_set);
+                    insert_pt_set(&ret, new);
                 }
                 else if (arr[i].type == VAL) {
                     Val offset = obj->mem.offset op arr[i];
                     MemStateObj *new = get_mem(obj->mem.base, offset, state);
                     if (!new) new = create_mem(obj->mem.base, offset, state);
-                    push_array(&new, ret.pt_set);
+                    insert_pt_set(&ret, new);
                 }
             }
         }
@@ -745,15 +746,15 @@ PointToSet _op_mem(MemStateObj *a, MemStateObj *b, Op op, AliasState *state) {
         ret.alias_type = MAY_MEM;
         ret.pt_set = array(sizeof(MemStateObj *), i);
 
-        Array *pt_set = a->pt_set.pt_set;
+        Array *pt_set = a.pt_set;
         MemStateObj **mem_arr = (MemStateObj **) pt_set->arr;
 
-        Array *val_set = b->val_set.val_set;
+        Array *val_set = b.val_set;
         Val *val_arr = (Val *) val_set->arr;
 
         if (err in mem_arr || NAI in val_arr) {
             MemStateObj *err = get_err_mem(state);
-            push_array(&err, ret.pt_set);
+            insert_pt_set(&ret, err);
         }
 
         for (obj in mem_arr other than err) {
@@ -761,22 +762,62 @@ PointToSet _op_mem(MemStateObj *a, MemStateObj *b, Op op, AliasState *state) {
                 Val offset = obj->mem.offset op val;
                 MemStateObj *new = get_mem(obj->mem.base, offset, state);
                 if (!new) new = create_mem(obj->mem.base, offset, state);
-                push_array(&new, ret.pt_set);
+                insert_pt_set(&ret, new);
             }
         }
     }
     return ret;
 }
 
-ValSet _op_val(MemStateObj *a, MemStateObj *b, Op op) {
+ValSet _op_val(ValSet a, ValSet b, Op op) {
+    if (a.val_type == NO_VAL || b.val_type == NO_VAL) return a;
+    else if (a.val_type == MUST_NAI) return a;
+    else if (b.val_type == MUST_NAI) return b;
+    else if (a.val_type == MAY_ALL_NAI) return a;
+    else if (b.val_type == MAY_ALL_NAI) return b;
 
+    ValSet v;
+
+    if (a.val_type == MUST_VAL) {
+        v.val_type = b.val_type;
+        if (NAI in b vals) add NAI to v.val_set;
+        if (ALL_VAL in b vals) add ALL_VAL to v.val_set;
+        for (val other than NAI and ALL_VAL in b vals) {
+            insert_val_set(&v, a_val op val);
+        }
+        return v;
+    }
+    else if (a_val or b_val = NAI && a_val or b_val == ALL_VAL) {
+        v.val_type = MAY_ALL_NAI;
+        v.val_set = array with NAI and ALL_VAL;
+        return v;
+    } 
+    else if (a_val or b_val == ALL_VAL) {
+        v.val_type = MAY_ALL_VAL;
+        v.val_set = array with ALL_VAL;
+        return v;
+    }
+    else if (a_val or b_val = NAI) {
+        v.val_type = MAY_NAI;
+        v.val_set = array with NAI;
+    }
+
+    for (a_val in a vals other than NAI, ALL_VAL) {
+        for (b_val in b vals other than NAI, ALL_VAL) {
+            insert_val_set(&v, a_val op b_val);
+        }
+    }
+    return v;
 }
 
 /* Transfer function for x = y op z:
- * Needs to handle the case where y is mem base and z
- * val, z is mem base and y is val, both are mem bases,
- * and both are vals. */
-bool tf_quad(Inst *inst, AliasState *state) {
+ * Needs to handle the case where y has mem type and
+ * z has int type, y has int type and z has mem type,
+ * and both are int types. Note that since y, z represent
+ * operands, y or z must have mem type, or both have
+ * non-mem types. */
+// TODO: be careful with temp array creation.
+bool tf_arith(Inst *inst, AliasState *state) {
     bool changed = false;
 
     Operand lhs = inst->lhs;
@@ -803,29 +844,95 @@ bool tf_quad(Inst *inst, AliasState *state) {
             t.val_set.val_type = MUST_NAI;
             t.val_set.val_set = array containing NAI;
         }
-
-        changed = changed || meet_pt_set(l, &t, state);
-        changed = changed || meet_val_set(l, &t, state);
     }
     /* If either rhs operand is a constant... */
-    else if (rhs1.type == CONST) {
-        // TODO - start here: create mem object for rhs2
-        t.pt_set = _op_mem(rhs1, )
-    }
-    else if z is constant {
+    else if (rhs1.type == CONST || rhs2.type == CONST) {
+        Operand c = rhs1.type == CONST ? rhs1 : rhs2;
+        Operand v = rhs1.type == CONST ? rhs2 : rhs1;
 
-    }
-    else if both are mem type {
+        /* If the other rhs operand is an int variable... */
+        if (v.var->type == INT) {
+            t.pt_set.alias_type = MUST_MEM;
+            t.pt_set.pt_set = get_err_mem(state);
 
+            if (c.constant.type == INT) {
+                t.val_set.val_type = MUST_VAL;
+                t.val_set.val_set = array containing c.constant.value + v.var.value;
+            }
+            else {
+                t.val_set.val_type = MUST_NAI;
+                t.val_set.val_set = array containing NAI;
+            }
+        }
+        /* If the other rhs operand is a mem variable... */
+        else if (v.var->type == MEM) {
+            ValSet val_set;
+
+            if (rhs1.constant.type != INT) {
+                val_set.val_type = MUST_NAI;
+                val_set.val_set = array with err;
+            }
+            else {
+                val_set.val_type = MUST_VAL;
+                val_set.val_set = array with c.constant.value;
+            }
+
+            MemStateObj *r = get_mem(v.var, offset, state);
+            if (!r) r = create_mem(v.var, offset, state);
+
+            t.pt_set = _op_mem(r->pt_set, val_set, op, state);
+            t.val_set = _op_val(r->val_set, val_set, op);
+        }
+        /* Otherwise, error. */
+        else {
+            t.pt_set.alias_type = MUST_MEM;
+            t.pt_set.pt_set = get_err_mem(state);
+            t.val_set.val_type = MUST_NAI;
+            t.val_set.val_set = array with NAI;
+        }
     }
-    else if y is mem {
-    }
-    else if z is mem {
-    }
+    /* Else if both rhs vars are variables... */
     else {
-        /* Both y, z are scalar values. */
+        /* If both have int type... */
+        if (rhs1.var->type == INT && rhs2.var->type == INT) {
+            t.pt_set.alias_type = MUST_MEM;
+            t.pt_set.pt_set = get_err_mem(state);
 
+            MemStateObj *r1 = get_mem(rhs1.var, offset, state);
+            if (!r1) r1 = create_mem(rhs1.var, offset, state);
+
+            MemStateObj *r2 = get_mem(rhs2.var, offset, state);
+            if (!r2) r2 = create_mem(rhs2.var, offset, state);
+
+            t.val_set = _op_val(r1->val_set, r2->val_set, op);
+        }
+        /* If one has int type... */
+        else if (rhs1.var->type == INT || rhs2.var->type == INT) {
+            Operand v = rhs1.var->type == INT ? rhs1 : rhs2;
+            Operand m = rhs1.var->type == INT ? rhs2 : rhs1;
+
+            MemStateObj *v_obj = get_mem(v.var, offset, state);
+            if (!v_obj) v_obj = create_mem(v.var, offset, state);
+
+            MemStateObj *m_obj = get_mem(m.var, offset, state);
+            if (!m_obj) m_obj = create_mem(m.var, offset, state);
+
+            t.pt_set = _op_mem(m_obj->pt_set, v_obj->val_set, state);
+            t.val_set = _op_val(m_obj->val_set, v_obj->val_set, op);
+        }
+        /* Otherwise, error. */
+        else {
+            t.pt_set.alias_type = MUST_MEM;
+            t.pt_set.pt_set = get_err_mem(state);
+            t.val_set.val_type = MUST_NAI;
+            t.val_set.val_set = array with NAI;
+        }
     }
+
+    changed = changed || meet_pt_set(l, &t, state);
+    changed = changed || meet_val_set(l, &t, state);
+
+    return changed;
 }
 
 bool tf(void *b, void *s) {
@@ -836,22 +943,23 @@ bool tf(void *b, void *s) {
 
     for (inst in block->insts) {
         switch (inst->type) {
-            case x = y:  // pt(x) = pt(y); val(x) = val(y)
-                MemStateObj *x_obj = get_mem_state(x, 0, state);
-                MemStateObj *y_obj = get_mem_state(y, 0, state);
-
-                if (!x_obj) create_mem_state(x, 0, state);
-                if (!y_obj) create_mem_state(y, 0, state);
-
-                meet_pt_set(x_obj, y_obj, state);
-                meet_val_set(x_obj, y_obj, state);
-
-            /* TODO: frontend ensures y op z is valid. */
-            case x = y op z:
-                changed = tf_quad(inst, state);
-            case *p = a:
-                ...
-            ...
+            case INST_COPY:
+                changed = changed || tf_copy(inst, state);
+                break;
+            case INST_ADDR:
+                changed = changed || tf_addr(inst, state);
+                break;
+            case INST_RHS_DEREF:
+                changed = changed || tf_rhs_deref(inst, state);
+                break;
+            case INST_LHS_DEREF:
+                changed = changed || tf_lhs_deref(inst, state);
+                break;
+            case INST_ARITH:
+                changed = changed || tf_arith(inst, state);
+                break;
+            // TODO: other inst types
+            default:
         }
     }
 
@@ -859,6 +967,6 @@ bool tf(void *b, void *s) {
 }
 
 AliasState *alias_analysis(Array *blocks) {
-    void *state = dfa_generic(blocks, init_state, state_tf);
+    void *state = dfa_generic(blocks, init_state, tf);
     return (AliasState *) state;
 }
