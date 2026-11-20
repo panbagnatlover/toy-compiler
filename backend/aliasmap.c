@@ -4,19 +4,51 @@
  * 
  * Decision: instead of bitmap, use arena for mem state
  * objects. Use capped dynamic arrays for pt sets.
+ * 
  * All raw mem address (e.g., x = 0x12345) is removed
  * from 3ac. x is treated as a global var located at 0x12345,
  * so does not need to account for this situation.
  * Similarly, cannot have x = NULL + y, etc.
  * 
- * If a pt set has ALL_MEM, pt set = {ALL_MEM}.
+ * All mem objects use discrete offset values.
+ * Each mem object can have val_set and pt_set. See
+ * example below why that's the case.
  * 
- * Cap val() to 10 values. If above, widen to ALL_VAL.
+ * Every pt set can have at most 10 distinct bases
+ * in addition to the ERR object. Beyond that, widens
+ * to ALL_MEM. ALL_MEM includes the ERR memory.
  * 
- * Memories with different bases do not "overlap"
- * even if offset is ALL_VAL.
+ * For each base in a pt set, it can have at most
+ * 10 offset values in addition to the NAI value
+ * in the same pt set. Beyond that, widens to
+ * (base, ALL_VAL).
  * 
- * Widening operator: TBD, see example below
+ * Every val set can have at most 10 distinct values
+ * in addition to the NAI value. Beyond that, widens
+ * to ALL_VAL. ALL_VAL excludes the NAI value.
+ * 
+ * Every update to a mem object in the form of (base, val)
+ * where val != NAI or ALL_VAL also updates the
+ * summary object (base, ALL_VAL).
+ * 
+ * Note that memory here represents abstract memory rather
+ * than actual memory. Therefore, memories with different
+ * bases do not "alias" each other, even if their offsets
+ * can go outside the field of the base variable.
+ * 
+ * Lattice for memories:
+ * Ordered by alias type: MAY_ALL_MEM < MAY_MEM < MUST_MEM < NO_MEM.
+ * Within each alias type, ordered by cardinality of the pt_set.
+ * 
+ * Lattice for vals:
+ * MAY_NAI < MAY_VAL < MUST_VAL < NO_VAL.
+ * MAY_NAI < MUST_NAI < NO_VAL.
+ * MAY_ALL_VAL < MAY_VAL.
+ * MAY_ALL_VAL_NAI < MAY_ALL_VAL.
+ * MAY_ALL_VAL_NAI < MAY_NAI.
+ * Within each val type, ordered by cardinality of the val_set.
+ * 
+ * Widening operator: see example below
     int i = 0;
     while (cond) {
         arr[i] = i;
@@ -39,9 +71,6 @@
  * pt(arr, [0, 1]) = {x}
  * ...
  * pt(arr, ALL_VAL) = {x}
- * 
- * Need to maintain mem(base, ALL_VAL) to be a union
- * of every mem(base, k). Same for val.
  * 
  * In the case of:
  * t = &x + b;
@@ -364,12 +393,10 @@ bool meet_pt_set(MemStateObj *a, MemStateObj *b, AliasState *state) {
 
     /* Update summary, i.e., if pt(a, b) is updated,
      * need to update the pt set of (a, ALL_VAL). */
-    if (a->pt_set.alias_type == MAY_MEM) {
+    if (changed && a->mem.offset.type != ALL_VAL) {
         Val all; all.type = ALL_VAL;
         MemStateObj *summary = get_mem(a->mem.base, all, state);
-        if (summary && a != summary) {
-            changed = meet_pt_set(summary, a, state);
-        }
+        if (summary) meet_pt_set(summary, a, state);
     }
 
     return changed;
@@ -504,10 +531,16 @@ bool meet_val_set(MemStateObj *a, MemStateObj *b, AliasState *state) {
         default:
     }
 
+    /* Update summary, i.e., if val(a, b) is updated,
+     * need to update the val set of (a, ALL_VAL). */
+    if (changed && a->mem.offset.type != ALL_VAL) {
+        Val all; all.type = ALL_VAL;
+        MemStateObj *summary = get_mem(a->mem.base, all, state);
+        if (summary) meet_val_set(summary, a, state);
+    }
+
     return changed;
 }
-
-// TODO: need to free temp array size if needed.
 
 /* Transfer function for x = y: pt(x) = pt(x) meet pt(y). */
 bool tf_copy(Inst *inst, AliasState *state) {
