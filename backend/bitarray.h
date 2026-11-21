@@ -37,6 +37,7 @@ typedef struct {
 
 /* APIs */
 /* TODO: chunked bit array stuff */
+/* TODO: iterator to find the next 1 */
 BitArray *bitarray(size_t domain, Arena *pool);  // returned bitarray has pointer to arena
 ChunkedBitArray *cbitarray(size_t init_domain, size_t num_chunks); // Domain = 0 if unknown; Input is init number of chunks;
 

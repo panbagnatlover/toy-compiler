@@ -88,12 +88,13 @@ TODO: intraprocedural analysis taking into account functions
 - Output: Memory -> pointed-to Memories, MUST or MAY;
 val(), MUST or MAY;
 - (p1) Memory safety feature
-- constant propagation + register promotion
+- constant propagation + register promotion (p0)
+- TODO: a local round of p = &x; *p = b -> x = b?
 
 4. copy propagation + DCE
-- copy propagation first
-- Apply live analysis involving memory
-- eliminate dead code
+- copy propagation first (exposes dead defs)
+- Apply live analysis involving memory (p0)
+- eliminate dead code (p0)
 
 5. Additional DFA analysis without memory
 - CSE, etc.
@@ -103,43 +104,44 @@ val(), MUST or MAY;
 
 6. Before backend:
 - Tag each variable memory vs vreg
+- TODO: this should already been inferred from type?
 
-7. Instruction selection
+7. Instruction selection (p0)
 - Macro expansion + combiner (peephole?)
 - CFG simplification
 Input: DAG for each CFG for each procedure
 Output: CFG with lowered instructions with virtual registers
 
-8. Interlude
+8. Interlude (p0)
 - Run live variable analysis on vregs and tag block-level
 live-in and live-out. Note that DFA is needed since non-SSA.
 Create slot objects and store liveness info in slots.
 - Create block info, inst info, slot, etc.
 
-9. 1st round scheduling
+9. 1st round scheduling (p0)
 
-10. Build live intervals
+10. Build live intervals (p0)
 - Build live intervals for each vreg and index uses and defs.
 
-11. Index loops
+11. Index loops (p0)
 - Create Loop and index info at block level.
 
-12. Register allocation
+12. Register allocation (p0)
 Input: CFG with lowered instructions with virtual registers
 Output: CFG with updated instructions with actual registers
 - When splitting, if empty block buffer is filled,
 need to trigger global renumbering
 - CFG simplification
 
-13. Peephole optimization
+13. Peephole optimization (p0)
 - Remove redundant LD, ST, etc.
 - Same as combiner logic?
 
-14. 2nd round scheduling
+14. 2nd round scheduling (p0)
 - Without register awareness
 - No need to update slot objects, etc.
 
-15. Flatten blocks
+15. Flatten blocks (p0)
 Input: CFG for each procedure with fully lowered instructions
 Output: flattened instructions for each procedure
 

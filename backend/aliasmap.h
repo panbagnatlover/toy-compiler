@@ -4,31 +4,35 @@
 #include "arena.h"
 #include "dfa.h"
 #include "memory.h"
+#include "var.h"
 
-/* If val(x) can take on more than 10 constants,
- * set val(x) = ALL_VAL. Same for pt(x). */
-#define VAL_K_THRES 13
-#define PTS_K_THRES 14
+#define VAL_K_THRES 12
+#define MEM_K_THRES 10
 
 typedef struct {
-    Memory *mem;  // TODO - array pool index?
-    AliasType alias_type;
-    Memory *pt_set[PTS_K_THRES];  // Seeded NAP, ERR_MEM, NULL_MEM, ALL_MEM
     ValType val_type;
-    size_t val_set[VAL_K_THRES];  // Seeded NAV, ERR_VAL, ALL_VAL
+    Array *val_set;  // Capped array of vals, 0 = NAI, 1 = ALL_VAL, 2-11 = other ints
+} ValSet;
+
+typedef struct {
+    AliasType alias_type;
+    void *pt_set;  // Capped array of mem state objs, sorted by base, or a single pointer
+} PointToSet;
+
+typedef struct {
+    Memory mem;
+    PointToSet pt_set;
+    ValSet val_set;
 } MemStateObj;
 
 typedef struct {
-    Arena *chunks;
-    Array *mems;  // Can be arena, but easier to retrieve array index
-    /* Array of arrays of Memory state objects.
-     * First array represents base vars in the order
-     * of pool ind, followed by additional slots for
-     * NAP, ERR_MEM, ALL_MEM.
-     * Second array represents offset values in
-     * sorted order of the constant. Reserved slots
-     * for NAV, ERR_VAL, ALL_VAL. */
-    Array *mem_state_objs;
+    Arena *objs;
+    /* TODO: some kind of data structure allowing for
+     * sorted memory state object pointers. */
+    Array *map;
 } AliasState;
+
+MemStateObj *get_mem(Var *var, Val offset, AliasState *state);
+AliasState *alias_analysis(Array *blocks);
 
 #endif

@@ -13,11 +13,11 @@ typedef struct {
     size_t ind;         // Index in pool
     size_t rpo_num;     // Order in reverse postorder
 
-    DLL *instructions;  // TODO: dll implementation
+    DLL *insts;  // TODO: dll implementation
 
     Set<struct Block *> predecessors;
-    struct Block *bl0;
-    struct Block *bl1;
+    Block *bl0;
+    Block *bl1;
 } Block;
 
 // typedef struct MBlock {

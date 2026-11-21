@@ -39,7 +39,7 @@
 #include "context.h"
 #include "log.h"
 
-int main(int argc, char **argv) {
+int frontend(int argc, char **argv) {
 
     /* I/O */
 

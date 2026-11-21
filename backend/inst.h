@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
+#include "dll.h"
 
 typedef struct Block;
 
@@ -12,7 +13,11 @@ typedef struct Block;
  * or separate it out in its own type.
  * Leaning separating it out in its own type. */
 /* TODO: MInst needs to have predecessors and successors. */
-typedef struct Instruction {
+/* Extension of DDLElem. */
+typedef struct {
+    DLLElem *next;
+    DLLElem *prev;
+
     enum {
        LABEL,
        DUMMY_ENTRY,
@@ -42,11 +47,8 @@ typedef struct Instruction {
 
     bool is_leader;
 
-    struct Instruction *prev;
-    struct Instruction *next;
-
-    struct Block *block;
-};
+    Block *block;
+} Inst;
 
 typedef struct MInst {
     /* TODO - same as instruction */

@@ -339,7 +339,7 @@ float branch_priority(Block *block, Block *child) {
  * or paths in loops. Allow the exit block,
  * if exists, to be placed in the middle of the
  * program. */
-void flattenCFG(Block *b_entry, Block *b_exit) {
+void flattenCFG(Block *b_entry) {
 
     Stack<Block *>worklist;
 

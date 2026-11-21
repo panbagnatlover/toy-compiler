@@ -19,6 +19,7 @@ typedef struct {
     Array *defs;  // Mapping of var ind -> bitarray
 } ReachingDefContext;
 
-void free_reaching_def_context(void *);
+ReachingDefContext *reaching_def(Array *blocks);
+void free_reaching_def_context(void *context);
 
 #endif

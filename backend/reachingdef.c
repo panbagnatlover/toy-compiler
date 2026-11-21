@@ -13,10 +13,11 @@ void free_obj(void *obj) {
     free_bitarray(o->kill);
 }
 
-void free_reaching_def_context(ReachingDefContext *context) {
-    free_array(context->objs);
-    free_arena(context->chunks);
-    free_array(context->defs);
+void free_reaching_def_context(void *context) {
+    ReachingDefContext *c = (ReachingDefContext *) context;
+    free_array(c->objs);
+    free_arena(c->chunks);
+    free_array(c->defs);
     free(context);
 }
 
@@ -43,7 +44,7 @@ void create_dfa_obj(
         ones_bitarray(obj.out);
     }
 
-    memcpy(loc, obj, sizeof(ReachingDefDFAObject));
+    push_array(&obj, context->objs);
 }
 
 DataFlowContext *state_init(Array *blocks) {

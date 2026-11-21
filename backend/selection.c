@@ -4,68 +4,105 @@
  * a heap-allocated set attribute, and copying
  * heap set is impractical. Or, do we want BitSet?
  * TODO: hash set -> links. Revisit question above.
- * TODO: alias comparison on bitmap instead of hash set
- * TODO: at the end, run a round of CFG simplification. */
+ * TODO: alias comparison on bitmap instead of hash set */
 
+#include "array.h"
+#include "arena.h"
 #include "block.h"
 #include "memory.h"
+#include "inst.h"
+#include "dll.h"
+#include "bitarray.h"
+#include "reachingdef.h"
 
 #define MAX_PROCESS_COUNT 5
 
-/* Translate a block of IR instructions
- * to machine instructions. */
-void selection(Array<Block *> blocks, rules?) {
-    Dict<Block *, MBlock *>map;
+/* Returns a new array. Old blocks and instructions
+ * will be freed. */
+Array *selection(Array *blocks, rules?, Context *c) {
+    /* Mapping table from old block ind to new block ind */
+    size_t *map = malloc(sizeof(size_t) * blocks->size);
+    /* Array of new blocks in reverse postorder */
+    Array *new_blocks = array(sizeof(Block), i);  // TODO: allocate size of blocks->size
 
-    for (block in blocks) {
-        map[block] = newmblock();
+    Block **arr = (Block **) new_blocks->arr;
+    Block **old_arr = (Block **) blocks->arr;
+
+    for (int i = 0; i < blocks->size; i++) {
+        arr[i] = newblock(); // TODO: Should create in c->block_arena
+        arr[i]->ind = i;
+        map[old_arr[i]->ind] = i;
     }
 
-    /* Lower each IR instruction to machine
-     * instruction and push to worklist. */
-    PriorityQueue<Instruction *> worklist;
+    // TODO: add APIs to use array as a stack / queue
+    // TODO: size should be at least INST_POOL_SIZE
+    Array *worklist = array(sizeof(Inst *), i);
 
-    for (block in blocks) {
-        map[block]->bl0 = block->bl0 ? map[block->bl0] : NULL;
-        map[block]->bl1 = block->bl1 ? map[block->bl1] : NULL;
+    for (int i = 0; i < blocks->size; i++) {
+        /* Create linkage between blocks. */
+        Block *block = old_arr[i];
+        arr[i]->bl0 = block->bl0 ? arr[map[block->bl0->ind]] : NULL;
+        arr[i]->bl1 = block->bl1 ? arr[map[block->bl1->ind]] : NULL;
         for (p in block->prececessors) {
-            map[block]->predecessors.add(map[p]);
+            arr[map[block->ind]]->predecessors.add(arr[map[p->ind]]);
         }
 
         if (block->type == ENTRY || block->type == EXIT) {
-            MBlock->type = block->type;
+            arr[i]->type = block->type;
             continue;
         }
 
-        Instruction *ins = block->head;
-        MInst *m_next = NULL;
-        MInst *m_prev = NULL;
+        DLL *old_insts = block->insts;
+        DLL *insts = dll();
+        arr[i]->insts = insts;
 
         /* For each instruction in block,
          * lower it to machine instructions, set up
          * linkage, and add the machine instructions
          * to worklist. */
-        while (ins) {
-            m_next = lower(ins);
-            m_next->prev = m_prev;
-            if (m_prev) m_prev->next = m_next;
-            while (m_next) {
-                worklist.push(m_next);
-                m_next->block = map[block];
-                m_prev = m_next;
-                m_next = m_next->next;
-            }
-            ins = ins->next;
+        Inst *old_inst = (Inst *) old_insts->head;
+        while (old_inst) {
+            DLL *new_insts = lower(old_inst);
+            push_dll(new_insts, insts);
+            old_inst = old_inst->next;
+        }
+        Inst *inst = (Inst *) insts->head;
+        while (inst) {
+            inst->block = arr[i];
+            push_array(&inst, worklist);
+            inst = inst->next;
         }
     }
 
-    /* TODO: reaching definition analysis on vreg, then set up
-     * use def and def use chain. Encode the domain of virtual registers
-     * into a bitset, and tag def / use for each block.
-     * Use def chain can be set up by looking at the reaching
-     * definition at each instruction and populating defs for
-     * the use, and use for the defs. Use hash set first,
-     * then build chains. */
+    /* TODO: free old blocks and old insts. */
+
+    /* Analyze reaching definitions on vregs. */
+    ReachingDefContext *rd = reaching_def(new_blocks);
+    Array *dfa_objs_arr = rd->objs;
+    Array *dfa_defs_arr = rd->defs;
+    ReachingDefDFAObject *dfa_objs = (ReachingDefDFAObject *) dfa_objs_arr->arr;
+    BitArray **dfa_defs = (BitArray **) dfa_defs_arr->arr;
+
+    /* TODO: Encode the domain of virtual registers
+     * into a bitset, and tag def / use for each block. */
+    for (int i = 0; i < dfa_objs_arr->size; i++) {
+        Block *block = dfa_objs[i].block;
+        BitArray *defs = dfa_objs[i].in;
+        Inst *inst = (Inst *) block->insts->head;
+        while (inst) {
+            /* For each used vreg, find the set of reached definitions
+             * and set up use-def / def-use chains. */
+            for (each used vreg) {
+                size_t iter = 0;
+                while(iter = iter_bitarray(dfa_defs[vreg->var->ind], iter)) {
+                    Inst *def = &inst_pool[iter];
+                    vreg->defs.add(def->lhs);
+                    def->lhs->uses.add(vreg);
+                    iter++;
+                }
+            }
+        }
+    }
 
     /* TODO: build memory chain. */
 
