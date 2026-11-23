@@ -2,12 +2,34 @@
 #define H_ALIASMAP
 
 #include "arena.h"
-#include "dfa.h"
 #include "memory.h"
 #include "var.h"
 
 #define VAL_K_THRES 12
 #define MEM_K_THRES 10
+
+typedef enum {
+    NO_VAL = 0,
+    MUST_VAL,
+    MUST_NAI,
+    MAY_VAL,
+    MAY_NAI,
+    MAY_ALL_VAL,
+    MAY_ALL_NAI
+} ValType;
+
+typedef enum {
+    NO_MEM = 0,
+    MUST_MEM,
+    MAY_MEM,
+    MAY_ALL_MEM
+} PTType;
+
+typedef enum {
+    NO_ALIAS = 0,
+    MUST_ALIAS,
+    MAY_ALIAS
+} AliasType;
 
 typedef struct {
     ValType val_type;
@@ -15,7 +37,7 @@ typedef struct {
 } ValSet;
 
 typedef struct {
-    AliasType alias_type;
+    PTType pt_type;
     void *pt_set;  // Capped array of mem state objs, sorted by base, or a single pointer
 } PointToSet;
 

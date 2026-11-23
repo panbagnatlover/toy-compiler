@@ -18,6 +18,8 @@ typedef struct {
     DLLElem *next;
     DLLElem *prev;
 
+    size_t ind;
+
     enum {
        LABEL,
        DUMMY_ENTRY,

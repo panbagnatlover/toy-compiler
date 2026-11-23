@@ -1,10 +1,13 @@
 /* Dynamic array.
  * Returns error code.
+
+ * TODO: for array and all other data structures,
+ * initialization using struct, so no need to allocate
+ * heap memory for initialization.
  */
 #ifndef H_ARRAY
 #define H_ARRAY
 
-#include <stdbool.h>
 #include <stdlib.h>
 #include "error.h"
 

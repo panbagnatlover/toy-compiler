@@ -25,8 +25,6 @@ typedef struct {
             };
         } constant;
     };
-
-    // TODO - add instruction ind, operand ind
 } Operand;
 
 #endif

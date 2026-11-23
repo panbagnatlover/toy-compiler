@@ -3,8 +3,6 @@
 #ifndef H_DDL
 #define H_DDL
 
-#include <stdlib.h>
-
 typedef struct {
     DLLElem *next;
     DLLElem *prev;
@@ -16,9 +14,8 @@ typedef struct {
     size_t size;
 } DLL;
 
-DLL *dll(void);
-DLLElem *dll_elem(void);
-void free_dll(DLL *dll);
+DLLElem *dll_elem(Arena *arena);  // TODO: create on dll elem arena
+void free_dll_elem(DLLElem *elem);
 
 /* Push a DLL elem to the back of the array. */
 void push_dll_elem(DLLElem *elem, DLL *dll) {

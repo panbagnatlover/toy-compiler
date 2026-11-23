@@ -1,7 +1,7 @@
-/* Var table */
+/* Variables. Flow insensitive. */
 
-#ifndef H_SYMBOL
-#define H_SYMBOL
+#ifndef H_VAR
+#define H_VAR
 
 #include <stdbool.h>
 #include "type.h"
@@ -12,6 +12,7 @@ typedef struct {
     bool is_temp; /* TODO - may not need this */
     char *name;  // TODO: no need for this
     Type *type;
+    bool stack_allocated;  // Needed on var. Flow insensitive attribute.
 } Var;
 
 typedef struct {

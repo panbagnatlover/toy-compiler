@@ -6,15 +6,15 @@
 #include "block.h"
 
 typedef struct {
-    BitArray *in;
-    BitArray *out;
+    BitArray *in;  // TODO: not pointer
+    BitArray *out;  // TODO: not pointer
     Block *block;
-    BitArray *gen;
-    BitArray *kill;
+    BitArray *gen;  // TODO: not pointer
+    BitArray *kill;  // TODO: not pointer
 } ReachingDefDFAObject;
 
 typedef struct {
-    Array *objs;  // Array of dfa objects
+    Array *objs;  // Array of dfa objects, in rp order of blocks
     Arena *chunks;  // Arena of bit chunks
     Array *defs;  // Mapping of var ind -> bitarray
 } ReachingDefContext;

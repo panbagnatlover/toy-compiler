@@ -6,29 +6,14 @@
 
 #include "dll.h"
 
-typedef struct Inst;
-
 typedef struct {
     enum {ENTRY, BODY, EXIT} type;
-    size_t ind;         // Index in pool
+    size_t ind;         // Index in pool. TODO: needed?
     size_t rpo_num;     // Order in reverse postorder
-
-    DLL *insts;  // TODO: dll implementation
-
-    Set<struct Block *> predecessors;
+    DLL insts;
+    Array predecessors;  // Array of Block * objects
     Block *bl0;
     Block *bl1;
 } Block;
-
-// typedef struct MBlock {
-//     enum {ENTRY, BODY, EXIT} type;
-//     struct MInst *head;
-//     struct MInst *tail;
-//     Set<struct MBlock *> predecessors;
-//     struct MBlock *bl0;
-//     struct MBlock *bl1;
-//     BitSet defs;
-//     BitSet uses;
-// }
 
 #endif

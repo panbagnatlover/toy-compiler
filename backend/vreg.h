@@ -19,17 +19,44 @@
  * We use a doubly linked list to chain uses together,
  * rather than having a hash set for each virtual
  * register. This is a design decision to limit expensive
- * heap allocations. */
+ * heap allocations.
+ * 
+ * Each def instance is linked to a use instance.
+ * Deleting a used vreg means removing all of its
+ * def linkages, and the corresponding defs need to
+ * delete the relevant use linkages.
+ * */
 
-#ifndef H_VREGISTER
-#define H_VREGISTER
+#ifndef H_VREG
+#define H_VREG
 
-typedef struct VRegister {
-    bool isDef;  // true for def, false for use
-    Variable *var;
-    Set<VReg *> defs;  // TODO: coalesce into one set
-    Set<VReg *> uses;
-    MInst *instruction;
-};
+#include "dll.h"
+#include "inst.h"
+#include "var.h"
+
+typedef struct {
+    DLLElem *next;
+    DLLElem *prev;
+    VReg *vreg;
+    Use *use;
+} Def;
+
+typedef struct {
+    DLLElem *next;
+    DLLElem *prev;
+    VReg *vreg;
+    Def *def;
+} Use;
+
+typedef struct {
+    Var *var;
+    DLL defs;
+    DLL uses;
+    Inst *inst;
+} VReg;
+
+/* Create use def chain between a and b, where a is a def of b. */
+void create_use_def_chain(VReg *a, VReg *b);
+bool is_def_of(VReg *a, VReg *b);  // Returns true if a defines b
 
 #endif

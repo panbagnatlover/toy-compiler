@@ -41,7 +41,7 @@ ErrCode mem2reg(Array *blocks, AliasState *alias_state) {
              * instruction to x = y. */
             if (inst->type == INST_LHS_DEREF) {
                 MemStateObj *obj = get_mem_state(lhs.var, 0);
-                if (obj->pt_set.alias_type != MUST_MEM) continue;
+                if (obj->pt_set.pt_type != MUST_MEM) continue;
                 MemStateObj *n = first item in pt_set;
                 if (n->mem.type == ERR_MEM) {
                     raise error("attempting to dereference a variable of type {lhs.var->type}.");
@@ -56,7 +56,7 @@ ErrCode mem2reg(Array *blocks, AliasState *alias_state) {
              * instruction to x = y. */
             else if (inst->type == INST_RHS_DEREF) {
                 MemStateObj *obj = get_mem_state(rhs.var, 0);
-                if (obj->pt_set.alias_type != MUST_MEM) continue;
+                if (obj->pt_set.pt_type != MUST_MEM) continue;
                 MemStateObj *n = first item in pt_set;
                 if (n->mem.type == ERR_MEM) {
                     raise error("attempting to dereference a variable of type {lhs.var->type}.");

@@ -60,6 +60,9 @@
  * Types: hash map + arena
  */
 typedef struct {
+
+    /* frontend */
+
     bool has_parsing_error;
     bool has_semantic_error;
     bool has_3ac_error;
@@ -88,6 +91,14 @@ typedef struct {
     Array *exit_stack;  // Exit label stack
 
     // TODO: Three-address code array
+
+    /* Backend */
+    Arena *inst_arena;  // Instruction arena
+    Arena *block_arena;  // Block arena
+    Array *block_rpo_array; // Array of reachable Block * objects in reverse postorder
+
+    Arena *uses;  // Arena of Use objects
+    Arena *defs;  // Arena of Def objects
 
 } Context;
 

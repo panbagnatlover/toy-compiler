@@ -34,9 +34,6 @@ int backend(Inst *insts) {
     simplifyCFG(entry);
     blocks = orderCFG(entry);
 
-    /* TODO */
-    // Tag each variable memory vs vreg;
-
     /* Instruction selection. */
     selection(blocks, rules?);
 

@@ -201,3 +201,40 @@ TODO p2: cache
 - reg pressure diff for each instruction can be cached.
 If remaining use for an interval changes, invalidate all
 affected cache.
+
+TODO: transfer alias analysis info to VMems
+- alias analysis val mapping not needed after constant
+propagation
+- when doing reg promotion, alias mapping would not change.
+If DCE, some memories may be cleared out, so their pt sets
+would no longer be applicable.
+- how to transfer alias info to VMem and
+how to represent (metadata data structure)?
+    - Option 1: add pt set to VMemInfo
+    - Option 2: add pt set to VMem
+Choose option 1.
+
+TODO: data structures
+- inst, block arenas - use ind to represent inst, block
+rather than memory across the board?
+- when to "reindex" arena? When doing reverse postorder for
+blocks for example, better to just reindex in an array
+or still keep block arena? Etc.
+    - e.g., after CFG simplification, some blocks in arena
+    would not be reachable
+    - e.g., we use arena size to represent domain size
+    (e.g., inst size, var size, etc.) for bitarrays.
+    Helpful to reindex arena?
+    - e.g., inst selection combiner changes insts. Will keep
+    write new insts as they come along or change existing insts
+    or delete insts. Will leave arena holes. Reindex after?
+Decision:
+- Use arena ind for bitarrays. Compact arena after memory
+or occupancy reaches a certain threshold. Figure out later.
+- Still need to be careful with indexes when using array.
+
+Plan for data structures:
+- Blocks: arena. rpo has it's own size_t array and each block
+has a rpo index. Blocks reindexed per rpo index during selection.
+- Instructions: arena. Each instruction has an arena index.
+- Analysis objects: has its own allocation.

@@ -24,23 +24,6 @@ typedef struct {
     Val offset;
 } Memory;
 
-typedef enum {
-    NO_VAL = 0,
-    MUST_VAL,
-    MUST_NAI,
-    MAY_VAL,
-    MAY_NAI,
-    MAY_ALL_VAL,
-    MAY_ALL_NAI
-} ValType;
-
-typedef enum {
-    NO_MEM = 0,
-    MUST_MEM,
-    MAY_MEM,
-    MAY_ALL_MEM
-} AliasType;
-
 bool eq_val(Val a, Val b);
 bool eq_mem(Memory a, Memory b);
 

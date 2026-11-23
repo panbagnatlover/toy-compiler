@@ -1,33 +1,32 @@
-#ifndef H_VMEMORY
-#define H_VMEMORY
+/* Decision: store pt set in vmem itself. */
+#ifndef H_VMEM
+#define H_VMEM
+
+#include "var.h"
+#include "aliasmap.h"
 
 /* TODO - need to add stack frame info? */
-typedef struct VMemory {
+typedef struct {
     enum {
-        VAR;
-        REG_OFFSET;
-        CON_OFFSET;
+        VMEM_VAR,  // e.g., define var1 = 0x12345, then [var1]
+        VMEM_REG,  // e.g., [SP, r]
+        VMEM_CON   // e.g., [SP, #32]
     } type;
 
     union {
-        Variable *var;
-
         struct {
-            VRegister reg; // reg has size info
-            Const offset;
-            Set<Memory *>must_alias; // TODO - bitset
-            Set<Memory *>may_alias;
-        } con_offset;
-
+            VReg base;
+            VReg offset;
+        } reg;
         struct {
-            VRegister reg;
-            VRegister offset;
-            Set<Memory *>must_alias; // TODO - bitset
-            Set<Memory *>may_alias;
-        } reg_offset;
-    } mem;
+            VReg reg; // reg has size info
+            size_t offset;
+        } con;
+    } loc;
 
-    MInst *inst;
-};
+    Inst *inst;
+
+    PointToSet pt_set;
+} VMem;
 
 #endif
