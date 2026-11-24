@@ -1,4 +1,7 @@
-/* TODO - needed? DFA framework. */
+/* DFA framework.
+ * TODO: for ReachingDefContext, etc., add ones and zeros to context.
+ */
+#include "stdbool.h"
 #include "block.h"
 #include "bitarray.h"
 
@@ -21,7 +24,15 @@ typedef void (*TransferFunc)(DataFlowObject *);
 typedef void *(*DFAStateInitFunc)(void);
 typedef bool (*StateFunc)(Block *block, void *state);  // return true if state changed
 
-Array *dfa_default(
+Array *dfa_forward_default(
+    Array *blocks,  // in reverse postorder
+    CreateVInitFunc create_v_init,
+    DFAObjContextInitFunc state_init,
+    MeetFunc meet,
+    TransferFunc tf
+);
+
+Array *dfa_backward_default(
     Array *blocks,  // in reverse postorder
     CreateVInitFunc create_v_init,
     DFAObjContextInitFunc state_init,

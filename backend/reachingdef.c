@@ -1,3 +1,5 @@
+// TODO: pass in context to state init helper to get pool size.
+// TODO: find a better name than state init helper.
 /* Reaching definitions. */
 #include "reachingdef.h"
 #include "dfa.h"
@@ -6,7 +8,7 @@
 void i(BitArray *array) {}
 
 void free_obj(void *obj) {
-    ReachingDefDFAObject *o = (ReachingDefDFAObject *) o;
+    ReachingDefDFAObject *o = (ReachingDefDFAObject *) obj;
     free_bitarray(o->in);
     free_bitarray(o->out);
     free_bitarray(o->gen);
@@ -24,13 +26,11 @@ void free_reaching_def_context(void *context) {
 void create_dfa_obj(
     Block *block,
     size_t domain,
-    bool init_val,
     BitArray *gen,
     BitArray *kill,
     ReachingDefContext *context
 ) {
     size_t ind = block->rpo_num;
-    void *loc = (char *) context->objs->arr + ind * context->objs->elem_size;
 
     ReachingDefDFAObject obj;
     obj.block = block;
@@ -39,15 +39,10 @@ void create_dfa_obj(
     obj.gen = gen;
     obj.kill = kill;
 
-    if (init_val) {
-        ones_bitarray(obj.in);
-        ones_bitarray(obj.out);
-    }
-
     push_array(&obj, context->objs);
 }
 
-DataFlowContext *state_init(Array *blocks) {
+DataFlowContext *state_init_helper(Array *blocks, size_t domain, SetKillSet set_func, GetKillSet get_func) {
     Array *objs = array(sizeof(ReachingDefDFAObject), free_obj); // TODO: add blocks->size
     Arena *chunks = arena(sizeof(BitChunk), 256, i);
     Array *defs = array(sizeof(BitArray *), free_bitarray); // TODO: add var_pool_size
@@ -57,20 +52,9 @@ DataFlowContext *state_init(Array *blocks) {
     context->defs = defs;
     context->chunks = chunks;
 
-    size_t domain = inst_pool_size;
-
     /* Map each var's definition into a bitarray. */
     for (block in blocks) {
-        for each inst {
-            if (inst is def) {
-                BitArray *a = defs[inst->lhs->var];
-                if (!a) {
-                    a = bitarray(domain, chunks);
-                    defs[inst->lhs->var] = a;
-                }
-                set_bitarray(inst->ind, true, a);
-            }
-        }
+        for (each inst) set_func(inst, context);
     }
 
     /* Create data flow object for each block. */
@@ -84,21 +68,18 @@ DataFlowContext *state_init(Array *blocks) {
         for each inst {
             set_bitarray(inst->ind, true, tmp);
 
-            BitArray *def;
-            if (inst is def) def = defs[inst->lhs->var];
-            else def = zeros;
+            BitArray *defs = get_func(inst, c);
 
             /* gen = gen + inst bit - kill.
-             * kill = kill + (defs - inst bit). */
+             * kill = kill + defs. */
             union_bitarray(gen, tmp, gen);
             diff_bitarray(gen, kill, gen);
-            diff_bitarray(def, tmp, tmp);
-            union_bitarray(kill, tmp, kill);
+            union_bitarray(kill, defs, kill);
 
             reset_bitarray(tmp);
         }
 
-        create_dfa_obj(block, domain, false, gen, kill, context);
+        create_dfa_obj(block, domain, gen, kill, context);
     }
 
     free_bitarray(tmp);
@@ -113,10 +94,47 @@ void tf(DataFlowObject *obj) {
     union_bitarray(o->gen, o->out, o->out);
 }
 
-ReachingDefContext *reaching_def(Array *blocks) {
-    DataFlowContext *context = dfa_default(
-        blocks, i, state_init, union_bitarray, tf
-    );
+/* Implementation for reaching def for ssalifting. */
 
+/* For ssalifting: p = &x; *p = a; does not kill x = y. */
+void set_kill_set_ssa(Inst *inst, ReachingDefContext *c) {
+    switch (inst->type) {
+        case BLABLA:  // If inst has a clear lhs
+            BitArray *a = c->defs[inst->lhs->var];
+            if (!a) {
+                a = bitarray(domain, chunks);
+                defs[inst->lhs->var] = a;
+            }
+            set_bitarray(inst->ind, true, a);
+        case *p = x:
+            return;
+        ...
+    }
+}
+
+BitArray *get_kill_set_ssa(Inst *inst, ReachingDefContext *c) {
+    if (inst is def) return defs[inst->lhs->var];
+    else return zeros;
+}
+
+DataFlowContext *state_init_ssa(Array *blocks) {
+    return state_init_helper(blocks, INST_POOL_SIZE, set_kill_set_ssa, get_kill_set_ssa);
+}
+
+ReachingDefContext *reaching_def_ssa(Array *blocks) {
+    DataFlowContext *context = dfa_forward_default(
+        blocks, i, state_init_ssa, union_bitarray, tf
+    );
     return (ReachingDefContext *) context;
 }
+
+/* Implementation for reaching def for use def chain setup. */
+
+void set_kill_set_vreg(Inst *, ReachingDefContext *c) {
+
+}
+
+BitArray *get_kill_set_vreg(Inst *, ReachingDefContext *c) {
+
+}
+// TODO

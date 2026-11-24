@@ -31,10 +31,10 @@ while (changed) {
     }
 }
 
-/* Flow sensitive DFA with dense bit arrays. Supports
- * both directions. Returns an array of dfa objects
+/* Flow sensitive DFA with dense bit arrays.
+ * Returns an array of dfa objects
  * in reverse postorder. */
-Array *dfa_default(
+Array *dfa_forward_default(
     Array *blocks,  // in reverse postorder
     CreateVInitFunc create_v_init,
     DFAObjContextInitFunc state_init,

@@ -106,7 +106,7 @@ Array *selection(Array *blocks, Context *c) {
      * into a bitset, and tag def / use for each block. */
     for (int i = 0; i < dfa_objs_arr->size; i++) {
         Block *block = dfa_objs[i].block;
-        BitArray *defs = dfa_objs[i].in;
+        BitArray *reaching_defs = dfa_objs[i].in;
         Inst *inst = (Inst *) block->insts->head;
         while (inst) {
             BitArray *tmp = bitarray();
@@ -114,13 +114,14 @@ Array *selection(Array *blocks, Context *c) {
              * and set up use-def chains. */
             for (each used vreg) {
                 size_t iter = 0;
-                intersect_bitarray(dfa_defs[vreg->var->ind], defs, tmp);
+                intersect_bitarray(dfa_defs[vreg->var->ind], reaching_defs, tmp);
                 while(iter = iter_bitarray(tmp, iter)) {
                     Inst *def_inst = get inst with ind iter;
                     create_use_def_chain(def_inst->lhs, &vreg);
                     iter++;
                 }
             }
+            reaching_defs = gen U (reaching_defs - kill);
         }
     }
 

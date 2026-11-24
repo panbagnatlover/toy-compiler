@@ -149,6 +149,8 @@ MemStateObj *create_mem(Var *var, Val offset, AliasState *state) {
     obj.val_set.val_type = NO_VAL;
     obj.val_set.val_set = NULL;
 
+    /* TODO: return the reference to obj, and index. Set index.
+     * Arena ind needed for live mem analysis. */
     push_arena(&obj, sizeof(MemStateObj), state->objs);
 
     get loc in arena;
@@ -938,6 +940,8 @@ bool tf_arith(Inst *inst, AliasState *state) {
     return changed;
 }
 
+/* TODO: for each tf, set pointer from operand to
+ * corresponding mem object. needed for live mem analysis. */
 bool tf(void *b, void *s) {
     Block *block = (Block *) b;
     AliasState *state = (AliasState *) s;

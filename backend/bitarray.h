@@ -8,8 +8,7 @@
 #ifndef H_BITARRAY
 #define H_BITARRAY
 
-#include <stdlib.h>
-#include "array.h"
+#include <stdbool.h>
 #include "arena.h"
 #include "dll.h"
 
@@ -60,6 +59,10 @@ void intersect_cbitarray(ChunkedBitArray *a, ChunkedBitArray *b, ChunkedBitArray
 
 void diff_bitarray(BitArray *a, BitArray *b, BitArray *orig);
 void diff_cbitarray(ChunkedBitArray *a, ChunkedBitArray *b, ChunkedBitArray *orig);
+
+/* Returns if the ind'th bit is true. */
+bool bool_bitarray(size_t ind, BitArray *a);
+bool bool_cbitarray(size_t ind, ChunkedBitArray *a);
 
 void free_bitarray(BitArray *bitarray);  // Just a simple free
 void free_cbitarray(ChunkedBitArray *bitarray); // free_dll, then free

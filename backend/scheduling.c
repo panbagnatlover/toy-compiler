@@ -11,15 +11,17 @@
  * to a slot, and each slot ties back to an instruction.
  */
 
+#include "scheduling.h"
+
 /* Lookback window for list scheduling
  * in a circular buffer. */
 #define RESOURCE_LOOKBACK 10
 #define BUFFER_SIZE 30
 
-void scheduling(Array<MBlock *> blocks) {
+void scheduling(Array *blocks) {
     for (block in blocks) {
         buildDAG(block);
-        listScheduling(insts);
+        listScheduling(block);
     }
 }
 
@@ -107,6 +109,7 @@ void buildDAG(Block *block) {
          * in order. We take this conservative measure
          * rather than assessing aliases precisely
          * for a lightweight scheduling solution. */
+        // TODO: use pt set for more precise DAG.
         if (memory) {
             build_latency_edge(last_memory, memory);
             last_memory = memory;

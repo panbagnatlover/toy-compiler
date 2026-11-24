@@ -1,7 +1,7 @@
 #ifndef H_SCHEDULING
 #define H_SCHEDULING
 
-#include <stdlib.h>
+#include "array.h"
 
 typedef struct {
     int inst_ind;

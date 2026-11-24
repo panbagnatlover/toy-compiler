@@ -1,4 +1,5 @@
 #include "aliasmap.h"
+#include "liveness.h"
 
 /* Local copy propagation. */
 void local_cp(Block *block) {
@@ -7,9 +8,62 @@ void local_cp(Block *block) {
     
 }
 
-/* Local dead code elimination. */
-void local_dce(Block *block, BitArray *live_out) {
+/* Dead code elimination. */
+void dce(Array *blocks, LivenessContext *liveness_context) {
+    BitArray *tmp_use = bitarray();
+    BitArray *tmp_def = bitarray();
+
+    for (block in blocks) {
+        LivenessDFAObject *obj = liveness_context->objs[block->ind];
+        BitArray *live = obj->out;
+
+        for (each inst backwards) {
+
+            switch (inst->type) {
+                case a[i] = x:
+                    if (pt(a[i]) MUST= something) {
+                        get ind of pointed to mem;
+                        if (!bool_bitarray(ind, live)) {
+                            remove inst;
+                            continue;
+                        }
+                    }
+                    get ind of (a, 0);
+                    if (!bool_bitarray(ind, live)) {
+                        remove inst;
+                        continue;
+                    }
+                    break;
     
+                case *p = x:
+                    if (pt(p, 0) MUST= something) {
+                        get ind of pointed to mem;
+                        if (!bool_bitarray(ind, live)) {
+                            remove inst;
+                            continue;
+                        }
+                    }
+                    break;
+                default:  // x = something
+                    /* If LHS is not live after definition,
+                     * remove the instruction. */
+                    get ind of (x, 0);
+                    if (!bool_bitarray(ind, live)) {
+                        remove inst;
+                        continue;
+                    }
+            }
+
+            set_def_mem(inst, tmp_def);
+            set_use_mem(inst, tmp_use);
+            live = tmp_use U (live - tmp_def);
+
+            reset_bitarray(tmp_def);
+            reset_bitarray(tmp_use);
+        }
+    }
+
+    // TODO: free tmp bitarrays? Or the chunk arena?
 }
 
 /* Constant propagation + register promotion. */
