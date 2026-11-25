@@ -28,6 +28,7 @@
 #include "vmem.h"
 #include "block.h"
 #include "instprofile.h"
+#include "liveness.h"
 #include "scheduling.h"
 
 /* Lookback window for list scheduling
@@ -45,39 +46,117 @@ typedef struct {
     uint8_t res_demand[NUM_RESOURCE_TYPE];  // Total units demanded by resource
 } InstInfo;
 
-// TODO: use slot ind rather than inst ind
-// for inst info placement. Slot ind represents original ind
-// of the insts.
+// TODO: map from inst->ind to inst placement order
+// in block, then inst_info_arr follows the inst placement
+// order, or directly map from inst->ind to inst_info_arr?
+typedef struct {
+    Array inst_info_arr;  // fixed size block->insts.size
 
-// Slot needs to have ind, inst *, live * bitarray.
+    /* Remaining resource demand. Sum of all units needed
+    * for a resource from all unscheduled instructions. */
+    Array rrd;  // fixed size NUM_RESOURCE_TYPE
 
-void scheduling(Array *blocks, bool pre_alloc) {
-    /* Run live variable analysis on vregs if scheduling
-     * is executed before reg allocation. */
-    if (pre_alloc) {
-        LivenessContext *lc = liveness(blabla);
-        LivenessDFAObject **obj = lc->objs;
-        for (block in blocks) {
-            create Slots with liveness info;
-        }
+    /* Resource table. Implemented as a circular buffer. */
+    Array rt;   // fixed size BUFFER_SIZE * NUM_RESOURCE_TYPE
+
+    /* Mapping between instruction->ind to inst_info
+     * across blocks. */
+    Array inst_info_map;
+} BlockInfo;
+
+typedef struct {
+    /* Mapping from inst->ind to Slot object. */
+    Array inst_to_slot;  // fixed size INST_POOL_SIZE
+    Arena slots;
+    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL
+} RegAllocContext;
+
+BlockInfo *init_block_info(bool pre_alloc) {
+    BlockInfo *block_info = malloc(sizeof(BlockInfo));
+
+    block_info->inst_info_arr.arr = blabla;
+
+    // TODO: malloc rrd, etc.
+
+    if (!pre_alloc) {
+        // TODO: malloc inst_info_map
     }
 
-    for (block in blocks) {
-        // TODO: create inst info array for insts in the block
-        buildDAG(block, inst_info);
-        listScheduling(block, pre_alloc);
+    return block_info;
+}
+
+void reset_block_info(Block *block, BlockInfo *block_info) {
+    // TODO: resize block_info->inst_info_arr, reset dict
+
+    for (int i = 0; i < NUM_RESOURCE_TYPE; i++) rrd[i] = 0;
+
+    for (int i = 0; i < BUFFER_SIZE; i++) {
+        for (int j = 0; j < NUM_RESOURCE_TYPE; j++) rt[i][j] = 0;
     }
 }
 
-/* Remaining resource demand. Sum of all units needed
- * for a resource from all unscheduled instructions. */
-int rrd[NUM_RESOURCE_TYPE];
+void free_block_info(BlockInfo *block_info) {
+    // free arrays
 
+    free(block_info);
+}
 
-int resource_per_cycle[NUM_RESOURCE_TYPE];
+// Slot needs to have ind, inst *, live * bitarray.
 
-/* Resource table. Implemented as a circular buffer. */
-int rt[BUFFER_SIZE][NUM_RESOURCE_TYPE];
+void scheduling(Array *blocks, bool pre_alloc, RegAllocContext *c) {
+    /* Run live variable analysis on vregs if scheduling
+     * is executed before reg allocation. */
+    if (pre_alloc) {
+        LivenessContext *lc = liveness_vreg(blocks);
+        LivenessDFAObject *objs = lc->objs->arr;
+
+        /* Store liveness info in Slot objects. */
+        for (int i = 0; i < blocks->size; i++) {
+            Block *block = blocks[i];
+            LivenessDFAObject *obj = &objs[i];
+            BitArray *live = obj->out;
+
+            /* Create a new slot object from the live out set. */
+            Slot *slot = create_slot(c->slots);
+            slot->live_set = live;
+            slot->inst = NULL;
+            push_dll_elem(slot, &(c->block_to_slots[block->ind]));
+
+            BitArray *tmp_def = bitarray();
+            BitArray *tmp_use = bitarray();
+
+            /* For each instruction, create a corresponding
+             * slot object from liveness information and
+             * set up linkage. The index to each slot object
+             * represents the order of the instruction in a
+             * block. */
+            for (each inst backwards) {
+                set_def_vreg(inst, tmp_def);
+                set_use_vreg(inst, tmp_use);
+                live = tmp_use U (live - tmp_def);
+
+                reset_bitarray(tmp_def);
+                reset_bitarray(tmp_use);
+
+                Slot *slot = create_slot(c->slots);
+                slot->live_set = live;
+                slot->inst = inst;
+                c->inst_to_slot[inst->ind] = slot;
+                insert_dll_elem(slot, NULL, &(c->block_to_slots[block->ind]);
+            }
+        }
+    }
+
+    BlockInfo *block_info = init_block_info(pre_alloc);
+
+    for (block in blocks) {
+        reset_block_info(block, block_info);
+        buildDAG(block, block_info);
+        listScheduling(block, block_info, c);
+    }
+
+    free_block_info(block_info);
+}
 
 /* Update latency info between prev and curr instructions. */
 static inline void _update_latency_dict(int8_t *l, Inst *prev, Inst *curr, InstInfo *arr) {
@@ -124,21 +203,12 @@ void build_latency_edge_vmem(VMem *prev, VMem *curr, InstInfo *arr) {
     _update_latency_dict(&l, prev->inst, curr->inst, arr);
 }
 
-/* Build DAG for instructions in a block. */
-// TODO: remove transitive reduction because
-// a -> b -> c latency can be smaller than a -> c latency.
+/* Build DAG for instructions in a block and
+ * populate . */
 // TODO: cheap alloc for array in dict values.
-void buildDAG(Block *block, Array *inst_info_arr) {
-    /* defs to same reg in order
-     * defs before uses
-     * uses before redefs
-     * writes to aliased memory in order
-     * writes before reads to aliased memory
-     * reads before rewrites to aliased memory
-     * Each edge has a latency metric, marking
-     * minimal number of cycles needed for dependent
-     * to wait after predecessor.
-     * */
+void buildDAG(Block *block, BlockInfo *block_info) {
+    Array *inst_info_arr = &block_info->inst_info_arr;
+
     /* Mapping a vreg variable to its previous
      * uses. */
     Dict last_uses;
