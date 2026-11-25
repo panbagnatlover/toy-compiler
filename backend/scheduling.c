@@ -9,45 +9,126 @@
  * 
  * Set up slots before scheduling. Each instruction is tied
  * to a slot, and each slot ties back to an instruction.
+ * 
+ * Approach:
+ * Each instruction type has a static execution profile
+ * with the following params: cycle, resource type, # units.
+ * In addition, each vreg / vmem has a latency with respect to
+ * its instruction.
+ * 
+ * These params and metrics are merely abstractions and do
+ * not represent how hardware actually executes an instruction.
+ * However, this representation is helpful for software instruciton
+ * scheduling. Metrics can be inferred from observed hardware
+ * behavior.
  */
-
+#include "dict.h"
+#include "dll.h"
+#include "vreg.h"
+#include "vmem.h"
+#include "block.h"
+#include "instprofile.h"
 #include "scheduling.h"
 
 /* Lookback window for list scheduling
  * in a circular buffer. */
 #define RESOURCE_LOOKBACK 10
-#define BUFFER_SIZE 30
+#define BUFFER_SIZE MAX_CYCLES + RESOURCE_LOOKBACK
+#define REG_THRESHOLD 30  // TODO: this is bs value rn
 
-void scheduling(Array *blocks) {
+typedef struct {
+    int depth;  // Longest latency path from entry to curr instruction
+    int rp_diff;  // Est. incremental change to reg pressure
+    int outdegree;  // Current number of unscheduled successors
+    Dict pred_latencies;  // Predecessor latencies
+    Dict succ_latencies;  // Successor latencies
+    uint8_t res_demand[NUM_RESOURCE_TYPE];  // Total units demanded by resource
+} InstInfo;
+
+// TODO: use slot ind rather than inst ind
+// for inst info placement. Slot ind represents original ind
+// of the insts.
+
+// Slot needs to have ind, inst *, live * bitarray.
+
+void scheduling(Array *blocks, bool pre_alloc) {
+    /* Run live variable analysis on vregs if scheduling
+     * is executed before reg allocation. */
+    if (pre_alloc) {
+        LivenessContext *lc = liveness(blabla);
+        LivenessDFAObject **obj = lc->objs;
+        for (block in blocks) {
+            create Slots with liveness info;
+        }
+    }
+
     for (block in blocks) {
-        buildDAG(block);
-        listScheduling(block);
+        // TODO: create inst info array for insts in the block
+        buildDAG(block, inst_info);
+        listScheduling(block, pre_alloc);
     }
 }
 
-int remaining_resource_demand[RESOURCES];
-int resource_per_cycle[RESOURCES];
-int rt[BUFFER_SIZE][RESOURCES];  // Circular buffer
+/* Remaining resource demand. Sum of all units needed
+ * for a resource from all unscheduled instructions. */
+int rrd[NUM_RESOURCE_TYPE];
 
-/* Calculate latency between instructions.
- * Latency is operand or memory dependent.
- * Latency represents the number of cycles between
- * top of instruction A and top of instruction B. */
-void build_latency_edge(VReg *prev, VReg *curr) {
-    int l1 = curr->inst->lhs_latency;
-    int l2 = prev->inst->operand_or_memory_latency;
-    int l = max(0, l2 - l1);
 
-    /* TODO - edge between two instructions may
-     * appear twice with different latencies. */
-    curr_inst_info.predecessors.add(prev->inst);
-    curr_inst_info.p_latencies.add(l);
-    prev_inst_info.successors.add(curr->inst);
-    prev_inst_info.s_latencies.add(l);
+int resource_per_cycle[NUM_RESOURCE_TYPE];
+
+/* Resource table. Implemented as a circular buffer. */
+int rt[BUFFER_SIZE][NUM_RESOURCE_TYPE];
+
+/* Update latency info between prev and curr instructions. */
+static inline void _update_latency_dict(int8_t *l, Inst *prev, Inst *curr, InstInfo *arr) {
+    int8_t ol;
+    size_t prev_ind = prev->ind;
+    size_t curr_ind = curr->ind;
+
+    Dict *dict = &arr[prev_ind].succ_latencies;
+    get_dict(&curr_ind, &ol, dict);
+    if (l > ol) {
+        put_dict(&curr_ind, l, dict);
+        dict = &arr[curr_ind].pred_latencies;
+        put_dict(&prev_ind, l, dict);
+    }
+}
+
+/* Calculate the number of cycles needed between
+ * two instructions, based on when a vreg from
+ * the prior instruction is ready for consumption
+ * by a vreg from the current instruction. */
+void build_latency_edge_vreg(VReg *prev, VReg *curr, InstInfo *arr) {
+    InstExecutionProfile *prev_profile = get_inst_profile(prev->inst);
+    InstExecutionProfile *curr_profile = get_inst_profile(curr->inst);
+
+    int8_t l1 = prev_profile->mem_latencies[prev->ind];
+    int8_t l2 = curr_profile->mem_latencies[curr->ind];
+    int8_t l = max(0, l2 - l1);
+
+    _update_latency_dict(&l, prev->inst, curr->inst, arr);
+}
+
+/* Calculate the number of cycles needed between
+ * two instructions, based on when a vmem from
+ * the prior instruction is ready for consumption
+ * by a vmem from the current instruction. */
+void build_latency_edge_vmem(VMem *prev, VMem *curr, InstInfo *arr) {
+    InstExecutionProfile *prev_profile = get_inst_profile(prev->inst);
+    InstExecutionProfile *curr_profile = get_inst_profile(curr->inst);
+
+    int8_t l1 = prev_profile->reg_latencies[prev->ind];
+    int8_t l2 = curr_profile->reg_latencies[curr->ind];
+    int8_t l = max(0, l2 - l1);
+
+    _update_latency_dict(&l, prev->inst, curr->inst, arr);
 }
 
 /* Build DAG for instructions in a block. */
-void buildDAG(Block *block) {
+// TODO: remove transitive reduction because
+// a -> b -> c latency can be smaller than a -> c latency.
+// TODO: cheap alloc for array in dict values.
+void buildDAG(Block *block, Array *inst_info_arr) {
     /* defs to same reg in order
      * defs before uses
      * uses before redefs
@@ -58,44 +139,51 @@ void buildDAG(Block *block) {
      * minimal number of cycles needed for dependent
      * to wait after predecessor.
      * */
-    Dict<Var *, Array<VReg *>> last_uses;
-    Dict<Var *, VReg *> last_def;
-    VMem *last_memory = NULL;
-    MInst *inst = block->head;
+    /* Mapping a vreg variable to its previous
+     * uses. */
+    Dict last_uses;
+    /* Mapping a vreg variable to its previous
+     * defs. */
+    Dict last_defs;
+    /* Mapping a vmem base variable to previous loads
+     * that alias memories with the same base. */
+    Dict last_loads;
+    /* Mapping a vmem base variable to previous stores
+     * that alias memories with the same base. */
+    Dict last_stores;
+
+    DLL insts = block->insts;
 
     /* TODO: Assume latency for each operand is populated
-     * in MInst. */
+     * in Inst. */
 
-    /* Do this forward to calculate depth.
-     * If A -> B -> C, no need for A -> C, so we can
-     * use last_uses and last_def to set up the
-     * dependency chain. */
-    while (inst) {
+    /* Build latency edges in forward direction
+     * and calculate depth. */
+    for (inst in insts) {
         /* Set up write-after-read and write-after-write
-         * dependency in case of virtual registers. */
+         * dependency for virtual registers. */
         if (write to a virtual register) {
-            VReg *last = last_def[LHS->var];
-            build_latency_edge(last, LHS);
+            /* Build latency edges with all prior writes of the
+             * same variable. Note that we cannot apply
+             * transitive reduction here because latency for
+             * A -> B -> C may be smaller than A -> C. */
+            Array *defs = last_defs[inst->lhs_vreg.var];
+            for (def in defs)
+                build_latency_edge_vreg(def, inst->lhs_vreg, inst_info_arr->arr);
 
-            /* All prior uses need to be accounted for,
-             * because uses don't have dependencies with each other. */
-            for (use in last_uses[LHS->var]) {
-                build_latency_edge(use, LHS);
-            }
-
-            /* Clear last uses for LHS var. The next
-             * def would need to set up edge with this
-             * def, so existing last uses for LHS var
-             * would have already been accounted for. */
-            last_uses[LHS->var].clear();
+            /* Build latency edges with all prior reads of the
+             * same variable. */
+            Array *uses = last_uses[inst->lhs_vreg.var];
+            for (use in uses)
+                build_latency_edge_vreg(use, inst->lhs_vreg, inst_info_arr->arr);
         }
 
-        /* Set up read-after-write dependency
-         * in case of virtual registers. */
-        for (vreg used in ins) {
-            VReg *last = last_def[vreg->var];
-            build_latency_edge(last, vreg);
-            last_uses[vreg->var].add(vreg);
+        /* Set up read-after-write dependency for virtual registers. */
+        for (vreg used in inst) {
+            VReg *defs = last_defs[vreg.var];
+            for (def in defs)
+                build_latency_edge_vreg(def, vreg, inst_info_arr->arr);
+            last_uses[vreg.var].add(vreg);
         }
 
         /* We add LHS operand to last_def after
@@ -103,97 +191,177 @@ void buildDAG(Block *block) {
          * for virtual registers, so that an
          * instruction such as x = x + y
          * does not erroneously depend on itself. */
-        if (there is LHS) last_def[LHS->var] = LHS;
+        if (there is LHS) last_defs[LHS->var].add(LHS);
 
-        /* Ensure all memory instructions are executed
-         * in order. We take this conservative measure
-         * rather than assessing aliases precisely
-         * for a lightweight scheduling solution. */
-        // TODO: use pt set for more precise DAG.
-        if (memory) {
-            build_latency_edge(last_memory, memory);
-            last_memory = memory;
-        }
+        /* Set write-after-read or write-after-write
+         * dependency for virtual memories. Scan previous
+         * loads and stores, identify vmems that may
+         * alias the stored vmem and set up latency edges. */
+        if (store to vmem) {
+            /* If a prior instruction stores to or loads from
+             * any memory, set up latency edge with the instruction. */
+            if (for str_vmem in last_stores[ALL_MEM]) {
+                build_latency_edge_mem(str_vmem, vmem, inst_info_arr->arr);
+            }
+            if (for ldr_vmem in last_loads[ALL_MEM]) {
+                build_latency_edge_mem(ldr_vmem, vmem, inst_info_arr->arr);
+            }
 
-        /* Calculate depth of the current instruction. */
-        int depth = 0;
-        for (int i = 0; i < inst_info.predecessors.size(); i++) {
-            int h = inst_info.predecessors[i]->depth;
-            int l = inst_info.p_latencies[i]->latency;
-            depth = max(depth, h + l);
-        }
-        inst_info.depth = depth;
-
-        /* Calculate resource need of the current instruction. */
-        ins_info.cycle = total cycles needed;
-        for (cycle needed) {
-            for resource {
-                ins_info.resource_demand[resource] += time_step[cycle][resource];
-                remaining_resource_demand[resource] += time_step[cycle][resource];
+            /* If storing to any abstract memory, set up
+             * dependency edge with every prior vmem. */
+            if (vmem points to ALL_MEM) {
+                for (every key in last_stores) {
+                    for (every value in last_stores[key])
+                        build_latency_edge_vmem(value, vmem, inst_info_arr->arr);
+                }
+                for (every key in last_loads) {
+                    for (every value in last_loads[key])
+                        build_latency_edge_vmem(value, vmem, inst_info_arr->arr);
+                }
+                last_stores[ALL_MEM].add(vmem);
+            }
+            /* Else, find possible aliasing candidates
+             * and set up dependency edge accordingly. */
+            else {
+                for (every base in vmem.pt_set) {
+                    Array *str_vmems = last_stores[base];
+                    for (str_vmem in str_vmems) {
+                        if (alias(str_vmem, vmem))
+                            build_latency_edge_vmem(str_vmem, vmem, inst_info_arr->arr);
+                    }
+                    Array *ldr_vmems = last_loads[base];
+                    for (ldr_vmem in ldr_vmems) {
+                        if (alias(ldr_vmem, vmem))
+                            build_latency_edge_vmem(ldr_vmem, vmem, inst_info_arr->arr);
+                    }
+                }
+                last_stores[base].add(vmem);
             }
         }
 
-        inst = inst->next;
+        /* Set read-after-write dependency for
+         * virtual memories. Scan previous stores,
+         * identify vmems that may alias the loaded
+         * vmem and set up latency edges. */
+        if (load from vmem) {
+            /* If loading from any abstract memory, set up
+             * dependency edge with every prior stored vmem. */
+            if (vmem points to ALL_MEM) {
+                for (every key in last_stores) {
+                    for (every value in last_stores[key])
+                        build_latency_edge_vmem(value, vmem, inst_info_arr->arr);
+                }
+                last_loads[ALL_MEM].add(vmem);
+            }
+            /* Else, find possible aliasing candidates
+             * and set up dependency edge accordingly. */
+            else {
+                for (every base in vmem.pt_set) {
+                    Array *str_vmems = last_stores[base];
+                    for (str_vmem in str_vmems) {
+                        if (alias(str_vmem, vmem))
+                            build_latency_edge_vmem(str_vmem, vmem, inst_info_arr->arr);
+                    }
+                    last_loads[base].add(vmem);
+                }
+            }
+
+            /* If a prior store instruction stores to any memory,
+             * set up latency edge with the instruction. */
+            if (for str_vmem in last_stores[ALL_MEM]) {
+                build_latency_edge_vmem(str_vmem, vmem, inst_info_arr->arr);
+            }
+        }
+
+        /* Calculate depth of the current instruction. */
+        InstInfo *inst_info = &((InstInfo *)inst_info_arr)[inst->ind];
+        Dict *latencies = &inst_info->pred_latencies;
+        int depth = 0;
+        for (int i = 0; i < latencies->cap; i++) {
+            if (key) {
+                InstInfo *pred = &((InstInfo *)inst_info_arr)[key];
+                depth = max(depth, latencies[key] + pred->depth);
+            }
+        }
+        inst_info->depth = depth;
+
+        /* Calculate resource demand of the current instruction. */
+        InstExecutionProfile *profile = get_inst_profile(inst);
+        for (int t = 0; t < profile->num_cycles; t++) {
+            for (int r = 0; r < NUM_RESOURCE_TYPE; r++) {
+                uint8_t units = profile->res_profile[t][r];
+                inst_info->res_demand[r] += units;
+                rrd[r] += units;
+            }
+        }
+
+        /* Calculate outdegrees. */
+        inst_info->outdegree = inst_info->succ_latencies.k_size;
     }
 }
 
-int calc_reg_pressure_diff(MInst *inst) {
-    /* TODO - cache */
-
+// TODO SLOT
+int calc_reg_pressure_diff(Inst *inst, InstInfo *arr) {
+    // TODO: return if cached
     int pressure = 0;
     if (inst is def and lhs live after inst) pressure--;
     for (vregs used) {
         if (vreg is dead after inst) pressure++;
     }
-    inst_info.reg_pressure = pressure;
+    arr[inst->ind].reg_pressure = pressure;
 
     return pressure;
 }
 
-int calc_critical_resource() {
+uint8_t calc_critical_resource(int *rrd) {
     /* TODO - cache */
-    int r = -1;  // Represent NULL resource somehow
+    uint8_t r = NUM_RESOURCE_TYPE + 1;  // represents NULL resource
     int demand = 0;
-    for resource in resources {
-        int t = remaining_resource_demand[resource] / resource_each_cycle[resource];
+    for (uint8_t i = 0; i < NUM_RESOURCE_TYPE; i++) {
+        int t = rrd[i] / available_resources[i];
         if (t > demand) {
             demand = t;
-            r = resource;
+            r = i;
         }
     }
     return r;
 }
 
-MInst *select_default(MInst *inst1, MInst *inst2) {
+Inst *select_default(
+    Inst *inst1, Inst *inst2, InstInfo *arr, int *rrd
+) {
     /* TODO - same as select with reg pressure,
-     * just deprioritize reg pressure. */
+     * just no reg pressure. */
 }
 
-MInst *select_with_reg_pressure(MInst *inst1, MInst *inst2) {
+Inst *select_with_reg_pressure(
+    Inst *inst1, Inst *inst2, InstInfo *arr, int *rrd
+) {
     if (!inst1) return inst2;
     if (!inst2) return inst1;
 
     /* Return the instruction that results in less
      * incremental reg pressure. */
-    int p1 = calc_reg_pressure_diff(inst1);
-    int p2 = calc_reg_pressure_diff(inst2);
+    int p1 = calc_reg_pressure_diff(inst1, arr);
+    int p2 = calc_reg_pressure_diff(inst2, arr);
     if (p1 < p2) return inst1;
     if (p1 > p2) return inst2;
 
     /* Return the instruction with greater depth. */
-    if (a.depth > b.depth) return inst1;
-    if (a.depth < b.depth) return inst2;
+    if (arr[inst1->ind].depth > arr[inst2->ind].depth) return inst1;
+    if (arr[inst1->ind].depth < arr[inst2->ind].depth) return inst2;
 
     /* Return the instruction with more predecessors. */
-    if (a.predecessors.size() > b.predecessors.size()) return inst1;
-    if (a.predecessors.size() < b.predecessors.size()) return inst2;
+    if (arr[inst1->ind].pred_latencies.k_size > arr[inst2->ind].pred_latencies.k_size) return inst1;
+    if (arr[inst1->ind].pred_latencies.k_size < arr[inst2->ind].pred_latencies.k_size) return inst2;
 
     /* Return the instruction that uses more critical resources. */
-    int critical_resource = calc_critical_resource();
-    if (a.resource_demand[critical_resource] > b.resource_demand[critical_resource]) return inst1;
-    if (b.resource_demand[critical_resource] > a.resource_demand[critical_resource]) return inst2;
+    int cr = calc_critical_resource(rrd);
+    if (arr[inst1->ind].res_demand[cr] > arr[inst2->ind].res_demand[cr]) return inst1;
+    if (arr[inst1->ind].res_demand[cr] < arr[inst2->ind].res_demand[cr]) return inst2;
 
     /* Return the latter instruction by original order. */
+    // TODO SLOT
     if (inst1->slot->ind > inst2->slot->ind) return inst1;
     return inst2;
 }
@@ -212,49 +380,46 @@ MInst *select_with_reg_pressure(MInst *inst1, MInst *inst2) {
  * the final candidate scheduled time. The initial
  * candidate scheduled time is calculated by taking the
  * max(predecessor scheduled time + latency). */
-void listScheduling(MBlock *block) {
-    size_t inst_size = get # of insts in block;
+void listScheduling(Block *block, bool pre_alloc, InstInfo *arr) {
+    size_t inst_size = block->insts.size;
  
-    Array<int> schedule(inst_size);
-    Array<int> outdegree(inst_size);
+    Array schedule;  // Set to inst_size
 
-    DLL<MInst *> queue;  // Ready queue
+    /* Worklist of instructions ready to schedule. */
+    DLL worklist;
 
-    /* Populate outdegrees and push instructions
-     * without successors to ready queue. */
-    MInst *inst = block->tail;
-    while (inst) {
-        int ind = inst->slot->ind;
-        outdegree[ind] = inst->successors.size();
-        if (!outdegree[ind]) queue.push(inst);
-        inst = inst->prev;
+    /* Push instructions with 0 successor to worklist. */
+    for (each inst backwards) {
+        if (!inst_info[inst->ind].outdegree)
+            push_dll_elem(inst, &queue);
     }
 
     int end_time;
     int start_time;
     int frontier = 0;  // earliest scheduled time
-    int reg_pressure = # of live_out vregs;
+    int reg_pressure = # of live out regs;
 
-    while (!queue.empty()) {
+    while (worklist.size) {
 
-        MInst *inst = NULL;
+        Inst *inst = NULL;
 
-        /* Select next instruction to schedule. */
-        if (reg_pressure > threshold) {
-            for instruction in queue {
-                inst = select_with_reg_pressure(inst, instruction);
+        /* Select next instruction to schedule. If scheduling
+         * is executed prior to reg allocation, allow selection
+         * heuristics to be register aware. */
+        if (pre_alloc && reg_pressure > REG_THRESHOLD) {
+            for (candidate in worklist) {
+                inst = select_with_reg_pressure(inst, candidate, arr, rrd);
             }
         }
         else {
-            for instruction in queue {
-                inst = select_default(inst, instruction);
+            for (candidate in worklist) {
+                inst = select_default(inst, candidate, arr, rrd);
             }
         }
 
-        ddl_remove(inst, queue);
+        remove_dll_elem(inst, &worklist);
 
         /* Find the next candidate scheduled time. */
-        int start_time = 0;
         for (s in successors) {
             int t = schedule[s] + inst_info.latencies[s];
             start_time = t > start_time ? t : start_time;
@@ -314,7 +479,7 @@ void listScheduling(MBlock *block) {
         }
 
         /* Update register pressure trackers. */
-        reg_pressure += calc_reg_pressure_diff(inst);
+        reg_pressure += calc_reg_pressure_diff(inst, arr);
 
         /* Update liveness information before the
          * current instruction. */
@@ -332,7 +497,7 @@ void listScheduling(MBlock *block) {
      * TODO - separate out slot pass if 2nd round doesn't need it. */
     sort schedule in reverse order;
 
-    MInst *prev = NULL;
+    Inst *prev = NULL;
     Slot *prev_slot = NULL;
     size_t ind = 0;
     for (inst in schedule) {

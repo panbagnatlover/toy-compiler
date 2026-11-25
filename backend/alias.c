@@ -24,7 +24,7 @@ bool interval_overlap(int offset_a, int size_a, int offset_b, int size_b) {
  * by our analysis framework, if base, #1 and base, #2
  * overlap, their pt sets overlap. Converse is not true.
  * Need proof. */
-AliasType alias(VMem *a, uint8_t size_a, VMem *b, uint8_t size_b) {
+AliasType alias(VMem *a, VMem *b) {
     PointToSet a_pt = a->pt_set;
     PointToSet b_pt = b->pt_set;
 
@@ -62,14 +62,14 @@ AliasType alias(VMem *a, uint8_t size_a, VMem *b, uint8_t size_b) {
             if (a_pt.pt_type == MUST_MEM) {
                 must_obj = (MemStateObj *) a_pt.pt_set;
                 may_objs = b_pt.pt_set;
-                l_size = size_a;
-                r_size = size_b;
+                l_size = a->size;
+                r_size = b->size;
             }
             else {
                 must_obj = (MemStateObj *) b_pt.pt_set;
                 may_objs = a_pt.pt_set;
-                l_size = size_b;
-                r_size = size_a;
+                l_size = b->size;
+                r_size = a->size;
             }
             for (obj in may_objs) {
                 if (may_obj->mem.base != must_obj->mem.base) continue;
@@ -94,8 +94,8 @@ AliasType alias(VMem *a, uint8_t size_a, VMem *b, uint8_t size_b) {
                 if (b_obj->mem.offset.type == ALL_VAL) return MAY_ALIAS;
                 if (
                     interval_overlap(
-                        a_obj->mem.offset.value, size_a,
-                        b_obj->mem.offset.value, size_b
+                        a_obj->mem.offset.value, a->size,
+                        b_obj->mem.offset.value, b->size
                     )
                 ) return MAY_ALIAS;
             }

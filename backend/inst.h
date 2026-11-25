@@ -8,6 +8,16 @@
 
 typedef struct Block;
 
+typedef enum {
+    /* IR instruction types */
+
+    /* Machine instruction types */
+    INST_ADD,
+    INST_SUB,
+    INST_LDR,
+    INST_STR
+} InstType;
+
 /* TODO: decide whether to keep
  * machine instruction in the same type
  * or separate it out in its own type.
@@ -19,20 +29,7 @@ typedef struct {
     DLLElem *prev;
 
     size_t ind;
-
-    enum {
-       LABEL,
-       DUMMY_ENTRY,
-       DUMMY_EXIT,
-       /* IR instruction types */
-       IR_COND,
-       IR_JUMP,
-       IR_FUNC,
-       ...
-       /* Machine instruction types */
-       M_blabla
-    } id;
-    /* TODO: Operands, Op */
+    InstType type;
 
     union {
         struct {

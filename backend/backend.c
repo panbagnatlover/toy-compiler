@@ -43,16 +43,16 @@ int backend(Context *c) {
     // Liveness analysis. Create block info, inst info, etc., for scheduling and reg alloc.
 
     /* Pre-alloc scheduling. */
-    scheduling(blocks);
+    scheduling(blocks, true);  // TODO
 
     /* TODO */
     // Build live intervals
 
     /* Loop indexing. */
-    loop_indexing(entry);
+    loop_indexing(entry);  // TODO
 
     /* Register allocation. */
-    allocation(live_ranges);
+    allocation(live_ranges);  // TODO
     
     /* Peephole optimization. */
     // TODO
@@ -62,7 +62,7 @@ int backend(Context *c) {
     blocks = orderCFG(entry);
 
     /* 2nd round scheduling. */
-    scheduling(blocks);
+    scheduling(blocks, false);  // TODO
 
     /* Flatten CFG. Emit final instructions. */
     flattenCFG(entry);

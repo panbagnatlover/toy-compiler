@@ -48,10 +48,18 @@ typedef struct {
     Def *def;
 } Use;
 
+typedef enum {
+    REG_SP = 0,
+    REG_FP,
+    REG_X1
+} Reg;
+
 typedef struct {
+    uint8_t ind;  // Index of a vreg in an instruction. Used for profiling
     Var *var;
     DLL defs;
     DLL uses;
+    Reg reg;  // Physical register.
     Inst *inst;
 } VReg;
 

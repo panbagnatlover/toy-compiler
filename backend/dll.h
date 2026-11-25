@@ -53,7 +53,7 @@ void merge_dll(DLL *arr, DLLElem *elem, DLL *dll) {
 }
 
 /* Insert new obj at the location of obj. */
-void insert(void *obj, void *new_obj) {
+void insert_ddl_elem(void *obj, void *new_obj) {
     prev_slot = slot->prev;
     next_slot = slot;
     slot = old_slot;
@@ -64,7 +64,7 @@ void insert(void *obj, void *new_obj) {
 }
 
 /* remove an obj. */
-void remove(void *obj) {
+void remove_ddl_elem(void *obj) {
     /* Example: Move old slot to the location of slot. */
     Slot *prev_slot = old_slot->prev;
     Slot *next_slot = old_slot->next;

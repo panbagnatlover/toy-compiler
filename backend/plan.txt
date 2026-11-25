@@ -238,3 +238,5 @@ Plan for data structures:
 has a rpo index. Blocks reindexed per rpo index during selection.
 - Instructions: arena. Each instruction has an arena index.
 - Analysis objects: has its own allocation.
+
+TODO: keep in mind x = &a[i] needs to be accounted for.

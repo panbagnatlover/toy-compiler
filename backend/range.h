@@ -30,7 +30,7 @@ typedef struct {
     Block *block;
     Slot *prev;
     Slot *next;
-    Inst *inst_after;  // The instruction immediately after the slot.
+    Inst *inst;  // The instruction immediately after the slot.
 } Slot;
 
 typedef struct {

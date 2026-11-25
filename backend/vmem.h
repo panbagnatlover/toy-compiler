@@ -3,10 +3,13 @@
 #define H_VMEM
 
 #include "var.h"
+#include "vreg.h"
 #include "aliasmap.h"
 
 /* TODO - need to add stack frame info? */
 typedef struct {
+    uint8_t ind;  // Index of vmem in an instruction. Used for static execution profiling
+
     enum {
         VMEM_VAR,  // e.g., define var1 = 0x12345, then [var1]
         VMEM_REG,  // e.g., [SP, r]
@@ -23,6 +26,9 @@ typedef struct {
             size_t offset;
         } con;
     } loc;
+
+    /* The # of bytes loaded from or stored to this vmem. */
+    uint8_t size;
 
     Inst *inst;
 
