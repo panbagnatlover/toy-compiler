@@ -49,7 +49,8 @@ bool eq_cbitarray(ChunkedBitArray *a, ChunkedBitArray *b);
 void reset_bitarray(BitArray *bitarray);
 void reset_cbitarray(ChunkedBitArray *cbitarray);
 
-void ones_bitarray(BitArray *bitarray);
+/* Set all dense bits to 1's. */
+void set_ones_bitarray(BitArray *bitarray);
 
 void union_bitarray(BitArray *a, BitArray *b, BitArray *orig);
 void union_cbitarray(ChunkedBitArray *a, ChunkedBitArray *b, ChunkedBitArray *orig);
@@ -63,6 +64,9 @@ void diff_cbitarray(ChunkedBitArray *a, ChunkedBitArray *b, ChunkedBitArray *ori
 /* Returns if the ind'th bit is true. */
 bool bool_bitarray(size_t ind, BitArray *a);
 bool bool_cbitarray(size_t ind, ChunkedBitArray *a);
+
+/* Returns the number of 1's in a bitarray. */
+size_t count_ones_bitarray(BitArray *bitarray);
 
 void free_bitarray(BitArray *bitarray);  // Just a simple free
 void free_cbitarray(ChunkedBitArray *bitarray); // free_dll, then free

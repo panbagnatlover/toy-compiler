@@ -52,6 +52,9 @@ void merge_dll(DLL *arr, DLLElem *elem, DLL *dll) {
     free_dll(arr);
 }
 
+/* Re-chain DLL by an ordering function. */
+void sort_dll(DLL *dll, SortFunc sort_func);
+
 /* Insert new obj at the location of obj. If obj
  * is NULL, insert upfront. */
 void insert_ddl_elem(DLLElem *new_obj, DLLElem *obj, DLL *dll) {

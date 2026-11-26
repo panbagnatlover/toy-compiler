@@ -25,36 +25,22 @@ typedef struct {
     int spill_weight;  // SIZE_MAX = unset
 } LiveRange;
 
+/* Slot is a DLL-backed type. */
 typedef struct {
-    size_t ind;
-    Block *block;
     Slot *prev;
     Slot *next;
-    Inst *inst;  // The instruction immediately after the slot.
-} Slot;
 
-typedef struct {
-    // size_t start_ind;
-    // size_t end_ind;
-    size_t block_ind;
-    Slot *start;
-    Slot *end;
-    /* Decision: no need to maintain live_in or live_out
-     * after live intervals are built for the first time.
-     * Can just query on slot. */
-    Set<Vreg *> live_in;
-    Set<Vreg *> live_out;
-} BlockInfo;  // Same index in pool as Block
+    /* Local ind inside a block. */
+    size_t ind;
+    Block *block;  // TODO: needed?
+    Inst *inst;  // The instruction immediately after the slot.
+    BitArray *live;
+} Slot;
 
 typedef struct {
     Loop *loop;
     Array<Interval> intervals;
     int execution_weight;
 } LoopInfo;
-
-typedef struct {
-    size_t inst_ind;
-    Slot *slot_before;
-} InstInfo;
 
 #endif

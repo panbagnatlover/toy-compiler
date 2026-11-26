@@ -44,24 +44,26 @@ typedef struct {
     Dict pred_latencies;  // Predecessor latencies
     Dict succ_latencies;  // Successor latencies
     uint8_t res_demand[NUM_RESOURCE_TYPE];  // Total units demanded by resource
+    size_t schedule;  // Relative time cycle of the scheduled instruction in a block
 } InstInfo;
 
 // TODO: map from inst->ind to inst placement order
 // in block, then inst_info_arr follows the inst placement
-// order, or directly map from inst->ind to inst_info_arr?
+// order
 typedef struct {
     Array inst_info_arr;  // fixed size block->insts.size
 
     /* Remaining resource demand. Sum of all units needed
     * for a resource from all unscheduled instructions. */
-    Array rrd;  // fixed size NUM_RESOURCE_TYPE
+    int rrd[NUM_RESOURCE_TYPE];
 
     /* Resource table. Implemented as a circular buffer. */
-    Array rt;   // fixed size BUFFER_SIZE * NUM_RESOURCE_TYPE
+    int rt[BUFFER_SIZE * NUM_RESOURCE_TYPE];
 
-    /* Mapping between instruction->ind to inst_info
+    /* Mapping between instruction->ind to local
+     * instruction order. This array is never reset
      * across blocks. */
-    Array inst_info_map;
+    Array inst_order;
 } BlockInfo;
 
 typedef struct {
@@ -149,10 +151,21 @@ void scheduling(Array *blocks, bool pre_alloc, RegAllocContext *c) {
 
     BlockInfo *block_info = init_block_info(pre_alloc);
 
-    for (block in blocks) {
+    for (int i = 0; i < blocks->size; i++) {
+        Block *block = blocks[i];
         reset_block_info(block, block_info);
+
+        /* Map local inst order within each block. */
+        size_t counter = 0;
+        for (each inst) {
+            block_info->inst_order[inst->ind] = counter++;
+        }
+
+        /* Build DAG and record metadata. */
         buildDAG(block, block_info);
-        listScheduling(block, block_info, c);
+
+        /* Schedule instructions. */
+        listScheduling(block, pre_alloc, block_info, c);
     }
 
     free_block_info(block_info);
@@ -207,7 +220,8 @@ void build_latency_edge_vmem(VMem *prev, VMem *curr, InstInfo *arr) {
  * populate . */
 // TODO: cheap alloc for array in dict values.
 void buildDAG(Block *block, BlockInfo *block_info) {
-    Array *inst_info_arr = &block_info->inst_info_arr;
+    InstInfo *inst_info_arr = block_info->inst_info_arr.arr;
+    size_t *inst_order = block_info->inst_order.arr;
 
     /* Mapping a vreg variable to its previous
      * uses. */
@@ -239,20 +253,20 @@ void buildDAG(Block *block, BlockInfo *block_info) {
              * A -> B -> C may be smaller than A -> C. */
             Array *defs = last_defs[inst->lhs_vreg.var];
             for (def in defs)
-                build_latency_edge_vreg(def, inst->lhs_vreg, inst_info_arr->arr);
+                build_latency_edge_vreg(def, inst->lhs_vreg, inst_info_arr);
 
             /* Build latency edges with all prior reads of the
              * same variable. */
             Array *uses = last_uses[inst->lhs_vreg.var];
             for (use in uses)
-                build_latency_edge_vreg(use, inst->lhs_vreg, inst_info_arr->arr);
+                build_latency_edge_vreg(use, inst->lhs_vreg, inst_info_arr);
         }
 
         /* Set up read-after-write dependency for virtual registers. */
         for (vreg used in inst) {
             VReg *defs = last_defs[vreg.var];
             for (def in defs)
-                build_latency_edge_vreg(def, vreg, inst_info_arr->arr);
+                build_latency_edge_vreg(def, vreg, inst_info_arr);
             last_uses[vreg.var].add(vreg);
         }
 
@@ -271,10 +285,10 @@ void buildDAG(Block *block, BlockInfo *block_info) {
             /* If a prior instruction stores to or loads from
              * any memory, set up latency edge with the instruction. */
             if (for str_vmem in last_stores[ALL_MEM]) {
-                build_latency_edge_mem(str_vmem, vmem, inst_info_arr->arr);
+                build_latency_edge_mem(str_vmem, vmem, inst_info_arr);
             }
             if (for ldr_vmem in last_loads[ALL_MEM]) {
-                build_latency_edge_mem(ldr_vmem, vmem, inst_info_arr->arr);
+                build_latency_edge_mem(ldr_vmem, vmem, inst_info_arr);
             }
 
             /* If storing to any abstract memory, set up
@@ -282,11 +296,11 @@ void buildDAG(Block *block, BlockInfo *block_info) {
             if (vmem points to ALL_MEM) {
                 for (every key in last_stores) {
                     for (every value in last_stores[key])
-                        build_latency_edge_vmem(value, vmem, inst_info_arr->arr);
+                        build_latency_edge_vmem(value, vmem, inst_info_arr);
                 }
                 for (every key in last_loads) {
                     for (every value in last_loads[key])
-                        build_latency_edge_vmem(value, vmem, inst_info_arr->arr);
+                        build_latency_edge_vmem(value, vmem, inst_info_arr);
                 }
                 last_stores[ALL_MEM].add(vmem);
             }
@@ -297,12 +311,12 @@ void buildDAG(Block *block, BlockInfo *block_info) {
                     Array *str_vmems = last_stores[base];
                     for (str_vmem in str_vmems) {
                         if (alias(str_vmem, vmem))
-                            build_latency_edge_vmem(str_vmem, vmem, inst_info_arr->arr);
+                            build_latency_edge_vmem(str_vmem, vmem, inst_info_arr);
                     }
                     Array *ldr_vmems = last_loads[base];
                     for (ldr_vmem in ldr_vmems) {
                         if (alias(ldr_vmem, vmem))
-                            build_latency_edge_vmem(ldr_vmem, vmem, inst_info_arr->arr);
+                            build_latency_edge_vmem(ldr_vmem, vmem, inst_info_arr);
                     }
                 }
                 last_stores[base].add(vmem);
@@ -319,7 +333,7 @@ void buildDAG(Block *block, BlockInfo *block_info) {
             if (vmem points to ALL_MEM) {
                 for (every key in last_stores) {
                     for (every value in last_stores[key])
-                        build_latency_edge_vmem(value, vmem, inst_info_arr->arr);
+                        build_latency_edge_vmem(value, vmem, inst_info_arr);
                 }
                 last_loads[ALL_MEM].add(vmem);
             }
@@ -330,7 +344,7 @@ void buildDAG(Block *block, BlockInfo *block_info) {
                     Array *str_vmems = last_stores[base];
                     for (str_vmem in str_vmems) {
                         if (alias(str_vmem, vmem))
-                            build_latency_edge_vmem(str_vmem, vmem, inst_info_arr->arr);
+                            build_latency_edge_vmem(str_vmem, vmem, inst_info_arr);
                     }
                     last_loads[base].add(vmem);
                 }
@@ -339,17 +353,17 @@ void buildDAG(Block *block, BlockInfo *block_info) {
             /* If a prior store instruction stores to any memory,
              * set up latency edge with the instruction. */
             if (for str_vmem in last_stores[ALL_MEM]) {
-                build_latency_edge_vmem(str_vmem, vmem, inst_info_arr->arr);
+                build_latency_edge_vmem(str_vmem, vmem, inst_info_arr);
             }
         }
 
         /* Calculate depth of the current instruction. */
-        InstInfo *inst_info = &((InstInfo *)inst_info_arr)[inst->ind];
+        InstInfo *inst_info = &inst_info_arr[inst_order[inst->ind]];
         Dict *latencies = &inst_info->pred_latencies;
         int depth = 0;
         for (int i = 0; i < latencies->cap; i++) {
             if (key) {
-                InstInfo *pred = &((InstInfo *)inst_info_arr)[key];
+                InstInfo *pred = &inst_info_arr[inst_order[key]];
                 depth = max(depth, latencies[key] + pred->depth);
             }
         }
@@ -361,7 +375,7 @@ void buildDAG(Block *block, BlockInfo *block_info) {
             for (int r = 0; r < NUM_RESOURCE_TYPE; r++) {
                 uint8_t units = profile->res_profile[t][r];
                 inst_info->res_demand[r] += units;
-                rrd[r] += units;
+                block_info->rrd[r] += units;
             }
         }
 
@@ -370,15 +384,38 @@ void buildDAG(Block *block, BlockInfo *block_info) {
     }
 }
 
-// TODO SLOT
-int calc_reg_pressure_diff(Inst *inst, InstInfo *arr) {
+/* Calculate the incremental effect of each instruction
+ * on register pressure in bottom-up scheduling. */
+int calc_reg_pressure_diff(
+    Inst *inst, InstInfo *arr, size_t *inst_order, Slot **inst_to_slot
+) {
     // TODO: return if cached
     int pressure = 0;
-    if (inst is def and lhs live after inst) pressure--;
-    for (vregs used) {
-        if (vreg is dead after inst) pressure++;
+
+    Slot *next_slot = inst_to_slot[inst->ind]->next;
+
+    /* If LHS variable is live after the instruction, decrease
+     * reg pressure by 1 unit. */
+    if (inst has vreg lhs) {
+        if (bool_bitarray(lhs.var->ind, next_slot->live)
+            lhs live after inst) pressure--;
     }
-    arr[inst->ind].reg_pressure = pressure;
+    /* For each distinct RHS variable used, if the variable
+     * is dead after the instruction, increase
+     * reg pressure by 1 unit. */
+    size_t vars_assessed[MAX_OPERAND];
+    for (vreg used) {
+        bool dup = false;
+        for (int i = 0; i < MAX_OPERAND; i++) {
+            if (vars_assessed[i] == vreg.var->ind) {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup && !bool_bitarray(vreg.var->ind, next_slot->live))
+            pressure++;
+    }
+    arr[inst_order[inst->ind]].rp_diff = pressure;
 
     return pressure;
 }
@@ -398,41 +435,52 @@ uint8_t calc_critical_resource(int *rrd) {
 }
 
 Inst *select_default(
-    Inst *inst1, Inst *inst2, InstInfo *arr, int *rrd
+    Inst *inst1,
+    Inst *inst2,
+    InstInfo *arr,
+    int *rrd,
+    size_t *inst_order
 ) {
     /* TODO - same as select with reg pressure,
      * just no reg pressure. */
 }
 
 Inst *select_with_reg_pressure(
-    Inst *inst1, Inst *inst2, InstInfo *arr, int *rrd
+    Inst *inst1,
+    Inst *inst2,
+    InstInfo *arr,
+    int *rrd,
+    size_t *inst_order,
+    Slot **inst_to_slot
 ) {
     if (!inst1) return inst2;
     if (!inst2) return inst1;
 
     /* Return the instruction that results in less
      * incremental reg pressure. */
-    int p1 = calc_reg_pressure_diff(inst1, arr);
-    int p2 = calc_reg_pressure_diff(inst2, arr);
+    int p1 = calc_reg_pressure_diff(inst1, arr, inst_order, inst_to_slot);
+    int p2 = calc_reg_pressure_diff(inst2, arr, inst_order, inst_to_slot);
     if (p1 < p2) return inst1;
     if (p1 > p2) return inst2;
 
+    InstInfo *info1 = &arr[inst_order[inst1->ind]];
+    InstInfo *info2 = &arr[inst_order[inst2->ind]];
+
     /* Return the instruction with greater depth. */
-    if (arr[inst1->ind].depth > arr[inst2->ind].depth) return inst1;
-    if (arr[inst1->ind].depth < arr[inst2->ind].depth) return inst2;
+    if (info1->depth > info2->depth) return inst1;
+    if (info1->depth < info2->depth) return inst2;
 
     /* Return the instruction with more predecessors. */
-    if (arr[inst1->ind].pred_latencies.k_size > arr[inst2->ind].pred_latencies.k_size) return inst1;
-    if (arr[inst1->ind].pred_latencies.k_size < arr[inst2->ind].pred_latencies.k_size) return inst2;
+    if (info1->pred_latencies.k_size > info2->pred_latencies.k_size) return inst1;
+    if (info1->pred_latencies.k_size < info2->pred_latencies.k_size) return inst2;
 
     /* Return the instruction that uses more critical resources. */
     int cr = calc_critical_resource(rrd);
-    if (arr[inst1->ind].res_demand[cr] > arr[inst2->ind].res_demand[cr]) return inst1;
-    if (arr[inst1->ind].res_demand[cr] < arr[inst2->ind].res_demand[cr]) return inst2;
+    if (info1->res_demand[cr] > info2->res_demand[cr]) return inst1;
+    if (info1->res_demand[cr] < info2->res_demand[cr]) return inst2;
 
     /* Return the latter instruction by original order. */
-    // TODO SLOT
-    if (inst1->slot->ind > inst2->slot->ind) return inst1;
+    if (inst_to_slot[inst1->ind]->ind > inst_to_slot[inst2->ind]->ind) return inst1;
     return inst2;
 }
 
@@ -450,27 +498,39 @@ Inst *select_with_reg_pressure(
  * the final candidate scheduled time. The initial
  * candidate scheduled time is calculated by taking the
  * max(predecessor scheduled time + latency). */
-void listScheduling(Block *block, bool pre_alloc, InstInfo *arr) {
-    size_t inst_size = block->insts.size;
- 
-    Array schedule;  // Set to inst_size
+void listScheduling(
+    Block *block,
+    bool pre_alloc,
+    BlockInfo *block_info,
+    RegAllocContext *c
+) {
+    if (pre_alloc && !c) raise error;
 
     /* Worklist of instructions ready to schedule. */
     DLL worklist;
 
     /* Push instructions with 0 successor to worklist. */
+    DLL insts = block->insts;
     for (each inst backwards) {
         if (!inst_info[inst->ind].outdegree)
             push_dll_elem(inst, &queue);
     }
 
-    int end_time;
-    int start_time;
-    int frontier = 0;  // earliest scheduled time
-    int reg_pressure = # of live out regs;
+    int end_time, start_time, frontier, reg_pressure;
+
+    /* Frontier represents the earliest cycle where
+     * no instructions are scheduled. Since we are scheduling
+     * backwards, it represents the "greatest" start time
+     * among all instructions + 1. */
+    frontier = 0;
+
+    /* Set reg pressure to the cardinality of the live out set. */
+    if (pre_alloc) {
+        DLL slots = ((DLL *) c->block_to_slots.arr)[block->ind];
+        reg_pressure = count_ones_bitarray(slots.tail->live);
+    }
 
     while (worklist.size) {
-
         Inst *inst = NULL;
 
         /* Select next instruction to schedule. If scheduling
@@ -478,25 +538,52 @@ void listScheduling(Block *block, bool pre_alloc, InstInfo *arr) {
          * heuristics to be register aware. */
         if (pre_alloc && reg_pressure > REG_THRESHOLD) {
             for (candidate in worklist) {
-                inst = select_with_reg_pressure(inst, candidate, arr, rrd);
+                inst = select_with_reg_pressure(
+                    inst,
+                    candidate,
+                    block_info->inst_info_arr.arr,
+                    block_info->rrd,
+                    block_info->inst_order.arr,
+                    c->inst_to_slot.arr
+                );
             }
         }
         else {
             for (candidate in worklist) {
-                inst = select_default(inst, candidate, arr, rrd);
+                inst = select_default(
+                    inst,
+                    candidate,
+                    block_info->inst_info_arr.arr,
+                    block_info->rrd,
+                    block_info->inst_order.arr
+                );
             }
         }
 
+        /* Remove instruction from the candidate pool. */
         remove_dll_elem(inst, &worklist);
 
-        /* Find the next candidate scheduled time. */
-        for (s in successors) {
-            int t = schedule[s] + inst_info.latencies[s];
+        size_t local_ind = ((size_t *) block_info->inst_order.arr)[inst->ind];
+        InstInfo *inst_info = &((InstInfo *) block_info->inst_info_arr.arr)[local_ind];
+
+        /* Find the next candidate start time. Since we are
+         * scheduling backwards, the next candidate start time
+         * is max(scheduled time of successor + latency) among
+         * all successors. */
+        for (key, latency in inst_info->succ_latencies) {
+            get succ local ind of key;
+            get succ inst info of key;
+            int t = succ_inst_info->schedule + latency;
             start_time = t > start_time ? t : start_time;
         }
-        end_time = start_time - inst->cycles_needed;
+        /* Find the next candidate end time. End time cannot
+         * be "smaller" than frontier minus RESOURCE_LOOKBACK
+         * due to the circular buffer. Adjust start time
+         * accordingly. */
+        InstExecutionProfile *profile = get_inst_profile(inst);
+        end_time = start_time - profile->num_cycles;
         end_time = max(end_time, frontier - RESOURCE_LOOKBACK);
-        start_time = end_time + inst->cycles_needed;
+        start_time = end_time + profile->num_cycles;
 
         /* Attempt to schedule the instruction at the
          * candidate time. If there is resource conflict,
@@ -535,10 +622,10 @@ void listScheduling(Block *block, bool pre_alloc, InstInfo *arr) {
         }
 
         /* Update the frontier. */
-        frontier = max(frontier, start_time);
+        frontier = max(frontier, start_time + 1);
 
         /* Schedule the current instruction. */
-        schedule[inst->slot->ind] = start_time;
+        inst_info->schedule = start_time;
 
         /* Push eligible unscheduled instructions
          * to priority queue. */
@@ -549,7 +636,7 @@ void listScheduling(Block *block, bool pre_alloc, InstInfo *arr) {
         }
 
         /* Update register pressure trackers. */
-        reg_pressure += calc_reg_pressure_diff(inst, arr);
+        reg_pressure += inst_info->rp_diff;
 
         /* Update liveness information before the
          * current instruction. */
@@ -557,28 +644,15 @@ void listScheduling(Block *block, bool pre_alloc, InstInfo *arr) {
         for (each vreg used) mark vreg live at slot before inst;
 
         /* Update resource demand trackers. */
-        for resource in resources {
-            remaining_resource_demand[resource] -= inst_info.resource_demand[resource];
+        for (int i = 0; i < NUM_RESOURCE_TYPE; i++) {
+            block_info->rrd[resource] -= inst_info.resource_demand[resource];
             /* TODO: invalidate cache. */
         }
     }
 
-    /* Order instructions and slots in a post pass.
-     * TODO - separate out slot pass if 2nd round doesn't need it. */
-    sort schedule in reverse order;
-
-    Inst *prev = NULL;
-    Slot *prev_slot = NULL;
-    size_t ind = 0;
-    for (inst in schedule) {
-        inst->prev = prev;
-        if (prev) prev->next = inst;
-        slot->prev = prev_slot;
-        if (prev_slot) prev_slot->next = slot;
-        slot->ind = ind++;
+    /* Re-order instructions in a post-pass. */
+    sort_dll(insts, func_to_reverse_sort_by_schedule);
+    if (pre_alloc) {
+        // TODO: sort slots and apply ind to slots
     }
-
-    slot->next = block_info->end_slot;
-    block_info->end_slot->prev = slot;
-    block_info->end_slot->ind = ind;
 }
