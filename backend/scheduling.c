@@ -1,27 +1,7 @@
-/* TODO: 2nd round scheduling does not require
- * updating live intervals or being register aware.
-
- * Do not rely on use def chain since it won't be preserved
- * after reg alloc.
-
- * Need to run live variable analysis before 1st round
- * scheduling. Build intervals after 1st round scheduling.
- * 
- * Set up slots before scheduling. Each instruction is tied
- * to a slot, and each slot ties back to an instruction.
- * 
- * Approach:
- * Each instruction type has a static execution profile
- * with the following params: cycle, resource type, # units.
- * In addition, each vreg / vmem has a latency with respect to
- * its instruction.
- * 
- * These params and metrics are merely abstractions and do
- * not represent how hardware actually executes an instruction.
- * However, this representation is helpful for software instruciton
- * scheduling. Metrics can be inferred from observed hardware
- * behavior.
- */
+/* Instruction scheduling.
+ * Pre-allocation scheduling takes register pressure into
+ * account. Post-allocation scheduling doesn't. */
+#include "bitarray.h"
 #include "dict.h"
 #include "dll.h"
 #include "vreg.h"
@@ -30,48 +10,6 @@
 #include "instprofile.h"
 #include "liveness.h"
 #include "scheduling.h"
-
-/* Lookback window for list scheduling
- * in a circular buffer. */
-#define RESOURCE_LOOKBACK 10
-#define BUFFER_SIZE MAX_CYCLES + RESOURCE_LOOKBACK
-#define REG_THRESHOLD 30  // TODO: this is bs value rn
-
-typedef struct {
-    int depth;  // Longest latency path from entry to curr instruction
-    int rp_diff;  // Est. incremental change to reg pressure
-    int outdegree;  // Current number of unscheduled successors
-    Dict pred_latencies;  // Predecessor latencies
-    Dict succ_latencies;  // Successor latencies
-    uint8_t res_demand[NUM_RESOURCE_TYPE];  // Total units demanded by resource
-    size_t schedule;  // Relative time cycle of the scheduled instruction in a block
-} InstInfo;
-
-// TODO: map from inst->ind to inst placement order
-// in block, then inst_info_arr follows the inst placement
-// order
-typedef struct {
-    Array inst_info_arr;  // fixed size block->insts.size
-
-    /* Remaining resource demand. Sum of all units needed
-    * for a resource from all unscheduled instructions. */
-    int rrd[NUM_RESOURCE_TYPE];
-
-    /* Resource table. Implemented as a circular buffer. */
-    int rt[BUFFER_SIZE * NUM_RESOURCE_TYPE];
-
-    /* Mapping between instruction->ind to local
-     * instruction order. This array is never reset
-     * across blocks. */
-    Array inst_order;
-} BlockInfo;
-
-typedef struct {
-    /* Mapping from inst->ind to Slot object. */
-    Array inst_to_slot;  // fixed size INST_POOL_SIZE
-    Arena slots;
-    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL
-} RegAllocContext;
 
 BlockInfo *init_block_info(bool pre_alloc) {
     BlockInfo *block_info = malloc(sizeof(BlockInfo));
@@ -90,10 +28,12 @@ BlockInfo *init_block_info(bool pre_alloc) {
 void reset_block_info(Block *block, BlockInfo *block_info) {
     // TODO: resize block_info->inst_info_arr, reset dict
 
-    for (int i = 0; i < NUM_RESOURCE_TYPE; i++) rrd[i] = 0;
+    for (int i = 0; i < NUM_RESOURCE_TYPE; i++)
+        block_info->rrd[i] = 0;
 
     for (int i = 0; i < BUFFER_SIZE; i++) {
-        for (int j = 0; j < NUM_RESOURCE_TYPE; j++) rt[i][j] = 0;
+        for (int j = 0; j < NUM_RESOURCE_TYPE; j++)
+            block_info->rt[i][j] = 0;
     }
 }
 
@@ -103,51 +43,9 @@ void free_block_info(BlockInfo *block_info) {
     free(block_info);
 }
 
-// Slot needs to have ind, inst *, live * bitarray.
-
-void scheduling(Array *blocks, bool pre_alloc, RegAllocContext *c) {
-    /* Run live variable analysis on vregs if scheduling
-     * is executed before reg allocation. */
-    if (pre_alloc) {
-        LivenessContext *lc = liveness_vreg(blocks);
-        LivenessDFAObject *objs = lc->objs->arr;
-
-        /* Store liveness info in Slot objects. */
-        for (int i = 0; i < blocks->size; i++) {
-            Block *block = blocks[i];
-            LivenessDFAObject *obj = &objs[i];
-            BitArray *live = obj->out;
-
-            /* Create a new slot object from the live out set. */
-            Slot *slot = create_slot(c->slots);
-            slot->live_set = live;
-            slot->inst = NULL;
-            push_dll_elem(slot, &(c->block_to_slots[block->ind]));
-
-            BitArray *tmp_def = bitarray();
-            BitArray *tmp_use = bitarray();
-
-            /* For each instruction, create a corresponding
-             * slot object from liveness information and
-             * set up linkage. The index to each slot object
-             * represents the order of the instruction in a
-             * block. */
-            for (each inst backwards) {
-                set_def_vreg(inst, tmp_def);
-                set_use_vreg(inst, tmp_use);
-                live = tmp_use U (live - tmp_def);
-
-                reset_bitarray(tmp_def);
-                reset_bitarray(tmp_use);
-
-                Slot *slot = create_slot(c->slots);
-                slot->live_set = live;
-                slot->inst = inst;
-                c->inst_to_slot[inst->ind] = slot;
-                insert_dll_elem(slot, NULL, &(c->block_to_slots[block->ind]);
-            }
-        }
-    }
+void scheduling(Array *blocks, bool pre_alloc, LivenessDFAObject *objs) {
+    /* Liveness analysis must be run before pre-allocation scheduling. */
+    if (pre_alloc && !objs) raise error;
 
     BlockInfo *block_info = init_block_info(pre_alloc);
 
@@ -155,17 +53,20 @@ void scheduling(Array *blocks, bool pre_alloc, RegAllocContext *c) {
         Block *block = blocks[i];
         reset_block_info(block, block_info);
 
-        /* Map local inst order within each block. */
+        /* Populate inst_order and initialize inst_info. */
         size_t counter = 0;
         for (each inst) {
-            block_info->inst_order[inst->ind] = counter++;
+            block_info->inst_order[inst->ind] = counter;
+            InstInfo *info = block_info->inst_info_arr[counter];
+            info->inst = inst;
+            counter++;
         }
 
         /* Build DAG and record metadata. */
         buildDAG(block, block_info);
 
         /* Schedule instructions. */
-        listScheduling(block, pre_alloc, block_info, c);
+        listScheduling(block, pre_alloc, block_info, objs);
     }
 
     free_block_info(block_info);
@@ -384,22 +285,43 @@ void buildDAG(Block *block, BlockInfo *block_info) {
     }
 }
 
-/* Calculate the incremental effect of each instruction
- * on register pressure in bottom-up scheduling. */
+/* Estimate the incremental effect of each instruction
+ * on register pressure in bottom-up scheduling.
+ * We estimate this metric by calculating liveness
+ * based on all scheduled instructions thus far,
+ * and calculate the incremental reg diff based
+ * on this liveness. Note that, this is only an
+ * estimation because an instruction could technically
+ * be scheduled behind frontier in the lookback window,
+ * in which case the "current liveness" may not be the
+ * real liveness. However, this is a small edge case
+ * and we can take the tradeoff here.
+ * Intuition:
+ * Assume A is at the frontier, and we want to schedule B.
+ * B does not conflict with A, and we can schedule B
+ * behind A. Suppose set IN represents the liveness state
+ * behind A when B has not been scheduled yet.
+ * When we calculate reg pressure of B, we estimate the
+ * current liveness to be useA U (IN - defA), whereas
+ * when we schedule B, the liveness at the slot after B
+ * is actually just IN. Since B cannot conflict with A,
+ * useA does not intersect with defB, and useB does not
+ * intersect with defA. Therefore, the liveness of the LHS
+ * of B would be the same for both IN and useA U (IN - defA).
+ * On the other hand, the liveness of the RHS of B may
+ * not be the same. For example, suppose RHS is dead at IN.
+ * if useA contains the RHS, it would be live at
+ * useA U (IN - defA). */
 int calc_reg_pressure_diff(
-    Inst *inst, InstInfo *arr, size_t *inst_order, Slot **inst_to_slot
+    Inst *inst, InstInfo *arr, size_t *inst_order, BitArray *curr_live
 ) {
-    // TODO: return if cached
     int pressure = 0;
-
-    Slot *next_slot = inst_to_slot[inst->ind]->next;
 
     /* If LHS variable is live after the instruction, decrease
      * reg pressure by 1 unit. */
-    if (inst has vreg lhs) {
-        if (bool_bitarray(lhs.var->ind, next_slot->live)
-            lhs live after inst) pressure--;
-    }
+    if (inst has vreg lhs && bool_bitarray(lhs.var->ind, curr_live))
+        pressure--;
+
     /* For each distinct RHS variable used, if the variable
      * is dead after the instruction, increase
      * reg pressure by 1 unit. */
@@ -412,11 +334,9 @@ int calc_reg_pressure_diff(
                 break;
             }
         }
-        if (!dup && !bool_bitarray(vreg.var->ind, next_slot->live))
+        if (!dup && !bool_bitarray(vreg.var->ind, curr_live))
             pressure++;
     }
-    arr[inst_order[inst->ind]].rp_diff = pressure;
-
     return pressure;
 }
 
@@ -451,15 +371,15 @@ Inst *select_with_reg_pressure(
     InstInfo *arr,
     int *rrd,
     size_t *inst_order,
-    Slot **inst_to_slot
+    BitArray *curr_live
 ) {
     if (!inst1) return inst2;
     if (!inst2) return inst1;
 
     /* Return the instruction that results in less
      * incremental reg pressure. */
-    int p1 = calc_reg_pressure_diff(inst1, arr, inst_order, inst_to_slot);
-    int p2 = calc_reg_pressure_diff(inst2, arr, inst_order, inst_to_slot);
+    int p1 = calc_reg_pressure_diff(inst1, arr, inst_order, curr_live);
+    int p2 = calc_reg_pressure_diff(inst2, arr, inst_order, curr_live);
     if (p1 < p2) return inst1;
     if (p1 > p2) return inst2;
 
@@ -480,7 +400,7 @@ Inst *select_with_reg_pressure(
     if (info1->res_demand[cr] < info2->res_demand[cr]) return inst2;
 
     /* Return the latter instruction by original order. */
-    if (inst_to_slot[inst1->ind]->ind > inst_to_slot[inst2->ind]->ind) return inst1;
+    if (inst_order[inst1->ind] > inst_order[inst2->ind]) return inst1;
     return inst2;
 }
 
@@ -502,9 +422,12 @@ void listScheduling(
     Block *block,
     bool pre_alloc,
     BlockInfo *block_info,
-    RegAllocContext *c
+    LivenessDFAObject *objs
 ) {
     if (pre_alloc && !c) raise error;
+
+    size_t *inst_order = (size_t *) block_info->inst_order.arr;
+    InstInfo *inst_info_arr = (InstInfo *) block_info->inst_info_arr.arr;
 
     /* Worklist of instructions ready to schedule. */
     DLL worklist;
@@ -524,10 +447,20 @@ void listScheduling(
      * among all instructions + 1. */
     frontier = 0;
 
-    /* Set reg pressure to the cardinality of the live out set. */
+    /* Curr_live represents the liveness state at the frontier.
+     * Only relevant for register-aware scheduling. */
+    BitArray *curr_live;
+    BitArray *tmp_use;
+    BitArray *tmp_def;
+
+    /* Inititalize curr_live to be the live out set.
+     * Set reg pressure to the cardinality of curr_live. */
     if (pre_alloc) {
-        DLL slots = ((DLL *) c->block_to_slots.arr)[block->ind];
-        reg_pressure = count_ones_bitarray(slots.tail->live);
+        curr_live = objs[block->ind].out;
+        reg_pressure = count_ones_bitarray(curr_live);
+
+        tmp_use = bitarray();
+        tmp_def = bitarray();
     }
 
     while (worklist.size) {
@@ -541,10 +474,10 @@ void listScheduling(
                 inst = select_with_reg_pressure(
                     inst,
                     candidate,
-                    block_info->inst_info_arr.arr,
+                    inst_info_arr,
                     block_info->rrd,
-                    block_info->inst_order.arr,
-                    c->inst_to_slot.arr
+                    inst_order,
+                    curr_live
                 );
             }
         }
@@ -553,9 +486,9 @@ void listScheduling(
                 inst = select_default(
                     inst,
                     candidate,
-                    block_info->inst_info_arr.arr,
+                    inst_info_arr,
                     block_info->rrd,
-                    block_info->inst_order.arr
+                    inst_order
                 );
             }
         }
@@ -563,8 +496,8 @@ void listScheduling(
         /* Remove instruction from the candidate pool. */
         remove_dll_elem(inst, &worklist);
 
-        size_t local_ind = ((size_t *) block_info->inst_order.arr)[inst->ind];
-        InstInfo *inst_info = &((InstInfo *) block_info->inst_info_arr.arr)[local_ind];
+        size_t local_ind = inst_order[inst->ind];
+        InstInfo *inst_info = &inst_info_arr[local_ind];
 
         /* Find the next candidate start time. Since we are
          * scheduling backwards, the next candidate start time
@@ -581,28 +514,42 @@ void listScheduling(
          * due to the circular buffer. Adjust start time
          * accordingly. */
         InstExecutionProfile *profile = get_inst_profile(inst);
-        end_time = start_time - profile->num_cycles;
+        end_time = start_time - profile->num_cycles + 1;
         end_time = max(end_time, frontier - RESOURCE_LOOKBACK);
-        start_time = end_time + profile->num_cycles;
+        start_time = end_time + profile->num_cycles - 1;
 
         /* Attempt to schedule the instruction at the
          * candidate time. If there is resource conflict,
          * increment the candidate time until a schedule
          * can be found. */
+        // TODO: test that exec profile and available resources
+        // are possible. E.g., if an inst requires 3 units
+        // of MEM in a cycle, available_resources[MEM] >= 3.
         while (true) {
             bool schedule_found = true;
-            for (time_step needed in instruction backwards) {
-                for resource needed at each instruction time_step {
-                    int units = inst_info.resource_demand[time_step][resource];
-                    int buffer_time = (end_time + cycles_needed - time_step) % BUFFER_SIZE;
-                    int occupied = buffer_time within lookback ? rt[buffer_time][resource] : 0;
-                    if (resource_per_cycle[resource] - occupied < units) {
+            for (int t = profile->num_cycles - 1; t >= 0; t--) {
+                uint8_t rt_row = (start_time - t) % BUFFER_SIZE;
+                uint8_t lookback_start = (frontier - RESOURCE_LOOKBACK) % BUFFER_SIZE;
+                uint8_t lookback_end = frontier % BUFFER_SIZE;
+
+                for (uint8_t r = 0; r < NUM_RESOURCE_TYPE; r++) {
+                    int units = profile->res_profile[t][r];
+                    int occupied;
+                    /* If the target rt_row belongs to the lookback window,
+                     * identify the current occupied resources. Otherwise,
+                     * assume all resources are unoccupied. */
+                    if (rt_row >= lookback_start && rt_row <= lookback_end)
+                        occupied = block_info->rt[rt_row][r];
+                    else occupied = 0;
+                    /* If resource conflict exists, abort scheduling. */
+                    if (available_resources[r] - occupied < units) {
                         schedule_found = false;
                         break;
                     }
                 }
                 if (!schedule_found) break;
             }
+            /* If scheduling failed, increment candidate time and try again. */
             if (!schedule_found) {
                 end_time++;
                 start_time++;
@@ -612,12 +559,22 @@ void listScheduling(
         }
 
         /* Populate resource buffer. */
-        for (time_step needed in instruction backwards) {
-            for resource needed at each instruction time_step {
-                int units = inst_info.resource_demand[time_step][resource];
-                int buffer_time = (end_time + cycles_needed - time_step) % BUFFER_SIZE;
-                int occupied = buffer_time within lookback ? rt[buffer_time][resource] : 0;
-                rt[buffer_time][resource] = occupied + units;
+        for (int t = profile->num_cycles - 1; t >= 0; t--) {
+            uint8_t rt_row = (start_time - t) % BUFFER_SIZE;
+            uint8_t lookback_start = (frontier - RESOURCE_LOOKBACK) % BUFFER_SIZE;
+            uint8_t lookback_end = frontier % BUFFER_SIZE;
+
+            for (uint8_t r = 0; r < NUM_RESOURCE_TYPE; r++) {
+                int units = profile->res_profile[t][r];
+                int occupied;
+                /* If the target rt_row belongs to the lookback window,
+                    * identify the current occupied resources. Otherwise,
+                    * assume all resources are unoccupied. */
+                if (rt_row >= lookback_start && rt_row <= lookback_end)
+                    occupied = block_info->rt[rt_row][r];
+                else occupied = 0;
+
+                block_info->rt[rt_row][r] = occupied + units;
             }
         }
 
@@ -629,30 +586,50 @@ void listScheduling(
 
         /* Push eligible unscheduled instructions
          * to priority queue. */
-        for (predecessors of inst) {
-            int ind = predecessor->slot->ind;
-            outdegree[ind]--;
-            if (!outdegree[ind]) queue.push(predecessor);
+        for (key in inst_info->pred_latencies) {
+            InstInfo *pred_info = &inst_info_arr[inst_order[key]];
+            pred_info->outdegree--;
+            if (!pred_info->outdegree)
+                insert_ddl_elem(pred_info->inst, NULL, &worklist);
         }
 
-        /* Update register pressure trackers. */
-        reg_pressure += inst_info->rp_diff;
+        /* Update curr_live. Estimate reg_pressure as
+         * the number of live variables in curr_live.
+         * We update curr_live based on the use
+         * and def set of the current scheduled instruction.
+         * This leads to an accurate calculation of the
+         * actual liveness state at the frontier, despite
+         * that the order for the incremental calculation
+         * may be different from the actual order of
+         * scheduled instructions.
+         * Intuition:
+         * Suppose the liveness calculation order places
+         * A before B, and the actual order of instructions
+         * places B before A. This can only happen if A, B
+         * don't conflict each other. Therefore, useA and
+         * defB don't intersect, and useB and defA don't
+         * intersect. Note the following cases:
+         * Case 1: curr_live = useA U (useB - defA) U (IN - defA U defB)
+         * Case 2: curr_live = useB U (useA - defB) U (IN - defA U defB)
+         * In both cases, curr_live is identical. */
+        if (pre_alloc) {
+            set_use_vreg(inst, tmp_use);
+            set_def_vreg(inst, tmp_def);
+            curr_live = tmp_use U (curr_live - tmp_def);
 
-        /* Update liveness information before the
-         * current instruction. */
-        if (inst is def) mark LHS dead at slot before inst;
-        for (each vreg used) mark vreg live at slot before inst;
+            reset_bitarray(tmp_def);
+            reset_bitarray(tmp_use);
+
+            /* Update register pressure trackers. */
+            reg_pressure = count_ones_bitarray(curr_live);
+        }
 
         /* Update resource demand trackers. */
-        for (int i = 0; i < NUM_RESOURCE_TYPE; i++) {
-            block_info->rrd[resource] -= inst_info.resource_demand[resource];
-            /* TODO: invalidate cache. */
+        for (int r = 0; r < NUM_RESOURCE_TYPE; r++) {
+            block_info->rrd[r] -= inst_info->res_demand[r];
         }
     }
 
     /* Re-order instructions in a post-pass. */
     sort_dll(insts, func_to_reverse_sort_by_schedule);
-    if (pre_alloc) {
-        // TODO: sort slots and apply ind to slots
-    }
 }

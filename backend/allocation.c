@@ -45,6 +45,13 @@
  * TODO: b tree?
  */
 
+typedef struct {
+    /* Mapping from inst->ind to Slot object. */
+    Array inst_to_slot;  // fixed size INST_POOL_SIZE
+    Arena slots;
+    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL
+} RegAllocContext;
+
 /* Example: be careful with MOV insertion at
  * arbitrary program points */
 x = 1

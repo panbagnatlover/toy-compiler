@@ -21,6 +21,11 @@ typedef struct {
     Arena *chunks;  // Arena of bit chunks
 } LivenessContext;
 
+void set_use_mem(Inst *inst, BitArray *inst_use);
+void set_def_mem(Inst *inst, BitArray *inst_def);
+void set_use_vreg(Inst *inst, BitArray *inst_use);
+void set_def_vreg(Inst *inst, BitArray *inst_def);
+
 /* TODO: move to application side. Add state init helper. */
 LivenessContext *liveness_mem(Array *blocks);
 LivenessContext *liveness_vreg(Array *blocks);

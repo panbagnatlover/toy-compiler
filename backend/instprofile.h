@@ -1,4 +1,14 @@
-/* Instruction execution resources. */
+/* Instruction execution profiles.
+ * Each instruction type has a static execution profile
+ * with the following params: cycle, resource type, # units.
+ * In addition, each vreg / vmem has a latency with respect to
+ * its instruction.
+ * 
+ * These params and metrics are merely abstractions and do
+ * not represent how hardware actually executes an instruction.
+ * However, this representation is helpful for software instruciton
+ * scheduling. Metrics can be inferred from observed hardware
+ * behavior. */
 #ifndef H_INST_PROFILE
 #define H_INST_PROFILE
 

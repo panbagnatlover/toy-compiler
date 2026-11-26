@@ -39,11 +39,10 @@ int backend(Context *c) {
     /* Instruction selection. */
     blocks = selection(blocks, c);  // TODO: dominator and memory chain
 
-    /* TODO */
-    // Liveness analysis. Create block info, inst info, etc., for scheduling and reg alloc.
-
     /* Pre-alloc scheduling. */
-    scheduling(blocks, true);  // TODO
+    LivenessContext *lc = liveness_vreg(blocks);
+    LivenessDFAObject *objs = (LivenessDFAObject *) lc->objs->arr;
+    scheduling(blocks, true, objs);
 
     /* TODO */
     // Build live intervals
