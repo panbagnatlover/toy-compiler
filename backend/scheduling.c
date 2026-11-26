@@ -2,7 +2,6 @@
  * Pre-allocation scheduling takes register pressure into
  * account. Post-allocation scheduling doesn't. */
 #include "bitarray.h"
-#include "dict.h"
 #include "dll.h"
 #include "vreg.h"
 #include "vmem.h"
@@ -632,4 +631,10 @@ void listScheduling(
 
     /* Re-order instructions in a post-pass. */
     sort_dll(insts, func_to_reverse_sort_by_schedule);
+
+cleanup:
+    if (pre_alloc) {
+        free_bitarray(tmp_def);
+        free_bitarray(tmp_use);
+    }
 }

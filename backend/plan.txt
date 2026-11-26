@@ -240,3 +240,14 @@ has a rpo index. Blocks reindexed per rpo index during selection.
 - Analysis objects: has its own allocation.
 
 TODO: keep in mind x = &a[i] needs to be accounted for.
+
+TODO: allocation
+- how to put use and defs in interval object?
+- put in Interval, or VarInfo?
+- use and def for vreg, or for inst?
+- when evicting while spilling during rewrite, keep a special stack
+loc for it?
+- tag spilled vregs as stack var
+- post pass to rewrite stack var into [SP, offset]?
+
+TODO: use def chain useless after inst selection?

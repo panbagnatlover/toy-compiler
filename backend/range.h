@@ -34,13 +34,6 @@ typedef struct {
     size_t ind;
     Block *block;  // TODO: needed?
     Inst *inst;  // The instruction immediately after the slot.
-    BitArray *live;
 } Slot;
-
-typedef struct {
-    Loop *loop;
-    Array<Interval> intervals;
-    int execution_weight;
-} LoopInfo;
 
 #endif

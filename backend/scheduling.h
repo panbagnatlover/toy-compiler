@@ -2,6 +2,8 @@
 #define H_SCHEDULING
 
 #include "array.h"
+#include "dict.h"
+#include "liveness.h"
 
 /* Lookback window for list scheduling
  * in a circular buffer. */
@@ -39,5 +41,7 @@ typedef struct {
      * across blocks. */
     Array inst_order;
 } BlockInfo;
+
+void scheduling(Array *blocks, bool pre_alloc, LivenessDFAObject *objs);
 
 #endif

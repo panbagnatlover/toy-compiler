@@ -20,37 +20,25 @@
  * in case of MOV insertion, can "renumber" a slot
  * in a block without needing to update each interval
  * object.
-    slot 1
-    inst A
-    slot 2
-    inst B
-    slot 3
-    inst C
+    slot 1 - inst A
+    slot 2 - inst B
+    slot 3 - inst C
     slot 4
 
-    slot 1
-    inst A
-    slot 2
-    inst B
-    slot 3
-    MOV x1, x
-    slot 4 - x dead, x1 live
-    inst C
-    slot 4 - renamed to 5
+    slot 1 - inst A
+    slot 2 - inst B
+    slot 3 - MOV x1, x
+    slot n - inst C
+    slot 4
 
-    Need to split x interval at slot before MOV (i.e.,
-    insertion point), and have x1 interval start at
-    slot after MOV.
+    x's live range is reset to [..., 3].
+    x1's live range is set to [4, ...].
+    For other variables, live range does not change.
+    Slot n will be reindexed to 4.
+    Slot 5 will be reindexed to 5.
  * 
  * TODO: b tree?
  */
-
-typedef struct {
-    /* Mapping from inst->ind to Slot object. */
-    Array inst_to_slot;  // fixed size INST_POOL_SIZE
-    Arena slots;
-    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL
-} RegAllocContext;
 
 /* Example: be careful with MOV insertion at
  * arbitrary program points */
@@ -155,25 +143,82 @@ x2 = 2
 x = x2
 L1: z = x
 
+#include "arena.h"
+#include "array.h"
+#include "pqueue.h"
+#include "inst.h"
+#include "block.h"
+
+typedef struct {
+    Arena var_info;
+    Array var_to_info;  // var ind to VarInfo *
+
+    /* Mapping from inst->ind to Slot object. */
+    Arena slots;
+    Array inst_to_slot;  // fixed size INST_POOL_SIZE
+    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL
+} RegAllocContext;
+
+typedef struct {
+    Slot *prev;
+    Slot *next;
+    size_t ind;  // Represents local order in a block.
+    Inst *inst;  // The instruction right after the slot.
+} Slot;
+
+// TODO: sorted array of intervals, name it TBD
+
+typedef struct {
+    Slot *start;
+    Slot *end;
+    Block *block;
+} LiveInterval;
+
+// Reg -> interval assignment mapping
+TBD *reg_intervals[NUM_REG]; // TODO - cranelift uses a btree
+
+typedef struct {
+    Var *var;
+    TBD intervals;  // Live intervals for a var
+    Reg assigned_reg;  // 0 = spill
+    int spill_weight;  // SIZE_MAX = unset
+} VarInfo;
+
+typedef struct {
+    Loop *loop;
+    TBD intervals;
+    int execution_weight;
+} LoopInfo;
+
 /* IntervalUnion methods */
 
-void insert_interval(LiveRange *lr, Interval *interval) {
+void insert_live_interval(TBD *array, LiveInterval *interval) {
 
 }
 
-void remove_interval(LiveRange *lr, Interval *interval) {
+void remove_live_interval(TBD *array, LiveInterval *interval) {
 
 }
 
-Array<Interval> query_interference(LiveRange *lr, Interval *interval) {
+bool overlap_live_interval(LiveInterval *i1, LiveInterval *i2) {
+    if (!i1 || !i2) return false;
+    if (i1->block != i2->block) return false;
+    return i1->end >= i1->start && i1->start <= i2->end;
+}
+
+bool overlap_live_intervals(TBD *r1, TBD *r2) {
+    // TODO
+}
+
+Array<Interval> query_interference(TBD *lr, LiveInterval *interval) {
 
 }
 
-bool has_interference(LiveRange *lr, Interval *interval) {
+bool has_interference(TBD *lr, LiveInterval *interval) {
 
 }
 
-int priority_func(LiveRange *lr) {
+int priority_func(VarInfo *info) {
     /* TODO: Take into account spill cost, loop
      * depth, number of uses / defs, range size, etc. */
 }
@@ -266,87 +311,168 @@ void insert_mov_instruction(Slot *slot, Vreg *old_vreg, Vreg *new_vreg) {
     }
 }
 
-/* TODO - need to support fast eviction, fast insertion,
- * .find() query */
-/* register -> interval assignment mapping. */
-Array<int, SortedIntervalObject>;  // TODO - cranelift uses a btree
-precolor registers;
-merge vregs that can be colaesced with no interference,
-update live ranges;
+void allocation(Array *blocks, LivenessDFAObject *objs) {
+    RegAllocContext *c = init_reg_alloc_context();
 
-push live ranges onto priority queue;
+    /* Create live intervals and slots. */
+    init_alloc(blocks, objs, c);
 
-while (queue not empty) {
-    get front;
+    // TODO
+    precolor registers;
 
-    /* Try assigning incoming range to a free register. */
-    Reg reg = find_free_reg(front);
-    if (reg) {
-        front->register = reg;
-        continue;
+    /* Coalescing pre-pass. */
+    coalescing(blocks, c);
+
+    /* Push each var_info to priority queue. */
+    PQueue worklist;
+    for (var_info in var_to_info) {
+        if (var_info is not null) insert_pq(&var_info, &worklist);
     }
 
-    /* Find the first register where the cost
-     * of spilling assigned ranges that conflict
-     * with the incoming range is lower than the
-     * priority of the incoming range, evict the
-     * conflicting ranges, and assign the incoming
-     * range. */
-    else {
-        for (each register) {
-            Set<LiveRange *> ranges = find_interfering_ranges(front, register);
-            int eviction_cost = 0;
-            for (range in ranges) eviction_cost += range->spill_weight;
+    while (worklist.size) {
+        VarInfo *info = (VarInfo *) top_pq(&worklist);
 
-            if (eviction_cost < front->spill_weight) {
-                evict the conflicting ranges, push to queue;
-                assign front to register;
-                break;
+        /* Try assigning incoming range to a free register. */
+        Reg reg = find_free_reg(front);
+        if (reg) {
+            front->register = reg;
+            continue;
+        }
+
+        /* Find the first register where the cost
+        * of spilling assigned ranges that conflict
+        * with the incoming range is lower than the
+        * priority of the incoming range, evict the
+        * conflicting ranges, and assign the incoming
+        * range. */
+        else {
+            for (each register) {
+                Set<LiveRange *> ranges = find_interfering_ranges(front, register);
+                int eviction_cost = 0;
+                for (range in ranges) eviction_cost += range->spill_weight;
+
+                if (eviction_cost < front->spill_weight) {
+                    evict the conflicting ranges, push to queue;
+                    assign front to register;
+                    break;
+                }
+            }
+            if (assigned) continue;
+        }
+
+        /* Try splitting the incoming range
+        * for better assignment opportunities, and
+        * add the new ranges to queue. Note that
+        * this cannot result in infinite recursion
+        * since the split ranges can only be smaller,
+        * and at some point, the ranges cannot be split
+        * further. */
+        strategy p1, p2, p3;
+        strategy max_profit;
+
+        p1 = try_hot_loop_splitting(front);
+        p2 = try_intra_block_splitting(front);
+        p3 = try_long_range_splitting(front);
+        max_st = p1.profit > p2.profit ? p1 : p2;
+        max_st = max_st.profit > p3.profit ? max_st : p3;
+
+        if (max_st.profit) {
+            switch (max_st.strategy) {
+                case HOT_LOOP:
+                    ranges = split_around_loop(front);
+                    push ranges to queue;
+                    break;
+                case INTER_BLOCK:
+                    ranges = split_around_block(front);
+                    spill background range;
+                    push foreground ranges to queue;
+                    break;
+                case INTRA_BLOCK:
+                    ranges = split_within_block(front);
+                    spill foreground ranges;
+                    push background range to queue;
+                    break;
+                default:
+            }
+            continue;
+        }
+    
+        /* Spill the live range if no other allocation
+        * methods apply. */
+        front->assigned_reg = SPILLED;
+    }
+
+cleanup:
+    free_reg_alloc_context(c);
+}
+
+RegAllocContext *init_reg_alloc_context(void) {
+    RegAllocContext *c = malloc(sizeof(RegAllocContext));
+    // TODO
+    return c;
+}
+
+/* Create live intervals for each vreg variable. Create slots. */
+void init_alloc(Array *blocks, LivenessDFAObject *objs, RegAllocContext *c) {
+    /* Build live intervals from liveness state. */
+    Array *var_to_info;  // VAR_POOL_SIZE
+
+    for each block {
+        initialize slot based on live out;
+
+        for each live out var {
+            check if var_info already exists, if not, create new;
+            if (vreg live after) {
+                create new interval with start = slot, end = slot;
+                vreg curr_interval = interval;
             }
         }
-        if (assigned) continue;
-    }
 
-    /* Try splitting the incoming range
-     * for better assignment opportunities, and
-     * add the new ranges to queue. Note that
-     * this cannot result in infinite recursion
-     * since the split ranges can only be smaller,
-     * and at some point, the ranges cannot be split
-     * further. */
-    strategy p1, p2, p3;
-    strategy max_profit;
-
-    p1 = try_hot_loop_splitting(front);
-    p2 = try_intra_block_splitting(front);
-    p3 = try_long_range_splitting(front);
-    max_st = p1.profit > p2.profit ? p1 : p2;
-    max_st = max_st.profit > p3.profit ? max_st : p3;
-
-    if (max_st.profit) {
-        switch (max_st.strategy) {
-            case HOT_LOOP:
-                ranges = split_around_loop(front);
-                push ranges to queue;
-                break;
-            case INTER_BLOCK:
-                ranges = split_around_block(front);
-                spill background range;
-                push foreground ranges to queue;
-                break;
-            case INTRA_BLOCK:
-                ranges = split_within_block(front);
-                spill foreground ranges;
-                push background range to queue;
-                break;
-            default:
+        for each instruction {
+            upate liveness state;
+            create new slot;
+            for each live var at new slot {
+                check if var_info already exists, if not, create new;
+                if (vreg live after and live before) extend start in curr_interval to slot;
+                else if (vreg dead after and live before) {
+                    create new interval for var; add to var intervals;
+                    start slot = slot before; end slot = slot before;
+                    vreg curr_interval = interval;
+                }
+            }
         }
-        continue;
+
+        for each var in dict {
+            add corresponding var_info to pq;
+        }
     }
- 
-    /* Spill the live range if no other allocation
-     * methods apply. */
-    front->assigned_reg = SPILLED;
+}
+
+/* Scan all copy instructions and merge non-overlapping
+ * intervals. */
+void coalescing(Array *blocks, RegAllocContext *c) {
+    for (block in blocks) {
+        for each inst {
+            if (inst is a copy inst, aka MOV r1, r2) {
+                Var *lhs = inst->lhs.var;
+                Var *rhs = inst->rhs.var;
+                VarInfo *l_info = c->var_to_info[lhs->ind];
+                VarInfo *r_info = c->var_to_info[rhs->ind];
+
+                if (
+                    overlap_live_intervals(l_info->intervals, r_info->intervals)
+                ) continue;
+
+                /* Merge the rhs variable into the lhs variable. */
+                merge_live_intervals(l_info->intervals, r_info->intervals);
+                // TODO: need to query uses and defs in var info to get all occurances?
+                for (all occurrences of rhs vreg) {
+                    rename to lhs var;
+                }
+                c->var_to_info[rhs->ind] = NULL;
+            }
+        }
+    }
 }
 
 /* Estimate split profitability as 

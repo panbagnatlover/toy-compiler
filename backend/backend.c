@@ -5,6 +5,7 @@
 #include "cfg.h"
 #include "aliasmap.h"
 #include "optimization.h"
+#include "scheduling.h"
 
 /* Input is a list of instructions. */
 int backend(Context *c) {
@@ -61,7 +62,7 @@ int backend(Context *c) {
     blocks = orderCFG(entry);
 
     /* 2nd round scheduling. */
-    scheduling(blocks, false);  // TODO
+    scheduling(blocks, false, NULL);
 
     /* Flatten CFG. Emit final instructions. */
     flattenCFG(entry);
