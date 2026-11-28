@@ -37,6 +37,11 @@
     Slot n will be reindexed to 4.
     Slot 5 will be reindexed to 5.
  * 
+ * Decision: interval by block boundaries instead of
+ * across blocks. Control flow is easier to reason about
+ * and MOV insertion accompanies by block insertion
+ * is easier to implement. This is different from LLVM.
+ * 
  * TODO: b tree?
  */
 
@@ -149,6 +154,9 @@ L1: z = x
 #include "inst.h"
 #include "block.h"
 
+#define MIN_SPLIT_INTERVAL_SIZE 3
+#define MIN_SPLIT_INTER_BLOCK_SPARCITY_THRES 2
+
 typedef struct {
     Arena var_info;
     Array var_to_info;  // var ind to VarInfo *
@@ -156,12 +164,18 @@ typedef struct {
     /* Mapping from inst->ind to Slot object. */
     Arena slots;
     Array inst_to_slot;  // fixed size INST_POOL_SIZE
-    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL
+    Array block_to_slots;  // fixed size blocks->size; block->ind to DLL; TODO - in block info?
+
+    Arena loop_info;
+    Array loop_to_info;
+
+    Arena block_info;
+    Array block_to_info;
 } RegAllocContext;
 
 typedef struct {
-    Slot *prev;
-    Slot *next;
+    DLLElem *prev;
+    DLLElem *next;
     size_t ind;  // Represents local order in a block.
     Inst *inst;  // The instruction right after the slot.
 } Slot;
@@ -174,6 +188,12 @@ typedef struct {
     Block *block;
 } LiveInterval;
 
+typedef struct {
+    enum { NO_SPLIT, HOT_LOOP, INTER_BLOCK, INTRA_BLOCK } type;
+    int profit;
+    Array interval_sets;  // Array of TBD *
+} SplitStrategy;
+
 // Reg -> interval assignment mapping
 TBD *reg_intervals[NUM_REG]; // TODO - cranelift uses a btree
 
@@ -185,75 +205,55 @@ typedef struct {
 } VarInfo;
 
 typedef struct {
+    DLL slots;
+    Loop *loop;
+} BlockInfo;
+
+typedef struct {
     Loop *loop;
     TBD intervals;
     int execution_weight;
 } LoopInfo;
 
-/* IntervalUnion methods */
-
-void insert_live_interval(TBD *array, LiveInterval *interval) {
+void insert_live_interval_set(TBD *array, LiveInterval *interval) {
 
 }
 
-void remove_live_interval(TBD *array, LiveInterval *interval) {
+void remove_live_interval_set(TBD *array, LiveInterval *interval) {
 
 }
 
-bool overlap_live_interval(LiveInterval *i1, LiveInterval *i2) {
+/* Returns true if l1 comprises l2. */
+bool comprise_live_interval_set(TBD *l1, TBD *l2) {
+
+}
+
+/* Returns true if two live intervals interfere. */
+bool has_interference_ii(LiveInterval *i1, LiveInterval *i2) {
     if (!i1 || !i2) return false;
     if (i1->block != i2->block) return false;
-    return i1->end >= i1->start && i1->start <= i2->end;
+    return i1->end->ind >= i1->start->ind && i1->start->ind <= i2->end->ind;
 }
 
-bool overlap_live_intervals(TBD *r1, TBD *r2) {
+/* Returns true if two live interval sets interfere. */
+bool has_interference_ss(TBD *r1, TBD *r2) {
     // TODO
 }
 
-Array<Interval> query_interference(TBD *lr, LiveInterval *interval) {
+/* Returns true if a live interval set interferes with a live interval. */
+bool has_interference_si(TBD *lr, LiveInterval *interval) {
 
 }
 
-bool has_interference(TBD *lr, LiveInterval *interval) {
-
+/* Given a VarInfo and an interval set, find the set of
+ * VarInfo's that interfere with the interval. */
+Array *query_interference_vs(VarInfo *info, TBD *l) {
+    // TODO
 }
 
-int priority_func(VarInfo *info) {
-    /* TODO: Take into account spill cost, loop
-     * depth, number of uses / defs, range size, etc. */
-}
-
-/* Given a live range, find a free register that
- * can fit the live range. */
-Reg find_free_reg(LiveRange *lr) {
-    for each register {
-        bool assigned = true;
-        for each interval in lr->intervals {
-            if (occupied[register].has_interference(interval)) {
-                assigned = false;
-                break;
-            }
-            if (!assigned) break;
-        }
-        if (assigned) return register;
-    }
-    return SPILLED;
-}
-
-/* Given a program point, find all free regs. */
-Array<Reg> find_free_regs_at_point(size_t block_ind, size_t slot_ind) {
-    Array<Reg> regs;
-    for each register {
-        if (!occupied[register].has_interference(program point)) {
-            regs.add(register);
-        }
-    }
-    return regs;
-}
-
-/* Given a live range and a register, find all interfering
- * live ranges. */
-Set<LiveRange *> find_interfering_ranges(LiveRange *lr, Reg r) {
+/* Given two live interval sets l1 and l2, find all interfering
+ * live intervals. */
+TBD *query_interference_ss(TBD *l1, TBD *l2) {
     Set<LiveRange *>ranges;
 
     for each interval in lr {
@@ -270,10 +270,48 @@ Set<LiveRange *> find_interfering_ranges(LiveRange *lr, Reg r) {
     return ranges;
 }
 
+TBD *query_interference_si(TBD *lr, LiveInterval *interval) {
+
+}
+
+/* Split v2 from v1 and save the result to v3. */
+// TODO: tag new use or def
+void diff_var_info(VarInfo *v1, VarInfo *v2, VarInfo *v3) {
+
+}
+
+int priority_func(VarInfo *info) {
+    /* TODO: Take into account spill cost, loop
+     * depth, number of uses / defs, range size, etc. */
+}
+
+/* Given live intervals, find a free reg that can fit
+ * the live intervals. */
+// TODO - consider better search method than linear?
+Reg find_free_reg(TBD *lr, Array *reg_intervals) {
+    for (uint8_t r = 0; r < NUM_REG; r++) {
+        if (has_interference_ss(lr, reg_intervals[r]))
+            continue;
+        return (Reg) r;
+    }
+    return SPILLED;
+}
+
+/* Given a program point, find all free regs. */
+Array<Reg> find_free_regs_at_point(size_t block_ind, size_t slot_ind) {
+    Array<Reg> regs;
+    for each register {
+        if (!occupied[register].has_interference(program point)) {
+            regs.add(register);
+        }
+    }
+    return regs;
+}
+
 /* Given a program point and a vreg, return true if vreg
  * is live at the program point. */
-bool is_live(Slot *slot, VReg *vreg) {
-    return has_interference(vreg range, [slot, slot]);
+bool is_live(Var *var, Slot *slot) {
+    // TODO
 }
 
 void insert_mov_instruction(Slot *slot, Vreg *old_vreg, Vreg *new_vreg) {
@@ -332,63 +370,70 @@ void allocation(Array *blocks, LivenessDFAObject *objs) {
     while (worklist.size) {
         VarInfo *info = (VarInfo *) top_pq(&worklist);
 
-        /* Try assigning incoming range to a free register. */
-        Reg reg = find_free_reg(front);
-        if (reg) {
-            front->register = reg;
+        /* Try assigning intervals to a free register. */
+        Reg reg = find_free_reg(info->intervals, reg_intervals);
+        if (reg != SPILLED) {
+            info->assigned_reg = reg;
             continue;
         }
 
-        /* Find the first register where the cost
-        * of spilling assigned ranges that conflict
-        * with the incoming range is lower than the
-        * priority of the incoming range, evict the
-        * conflicting ranges, and assign the incoming
-        * range. */
+        /* Find the first register where the eviction
+         * cost of assigned intervals that conflict
+         * with the incoming intervals is lower than the
+         * spill weight of the incoming intervals, evict the
+         * conflicting ranges, and assign the incoming
+         * range. */
         else {
-            for (each register) {
-                Set<LiveRange *> ranges = find_interfering_ranges(front, register);
+            bool assigned = false;
+            for (int r = 0; r < NUM_REG; r++) {
+                Array *var_info_arr = find_interfering_var_info(info, reg_intervals[r]);
                 int eviction_cost = 0;
-                for (range in ranges) eviction_cost += range->spill_weight;
+                for (distinct var_info in var_info_arr) {
+                    eviction_cost += calc_spill_weight(var_info);
+                }
 
-                if (eviction_cost < front->spill_weight) {
-                    evict the conflicting ranges, push to queue;
-                    assign front to register;
+                if (eviction_cost < calc_spill_weight(info)) {
+                    for (distinct var_info in var_info_arr) {
+                        var_info->assigned_reg = REG_NA;
+                        push_pq(&var_info, &worklist);
+                    }
+                    info->assigned_reg = (Reg) r;
+                    assigned = true;
                     break;
                 }
             }
             if (assigned) continue;
         }
 
-        /* Try splitting the incoming range
-        * for better assignment opportunities, and
-        * add the new ranges to queue. Note that
-        * this cannot result in infinite recursion
-        * since the split ranges can only be smaller,
-        * and at some point, the ranges cannot be split
-        * further. */
-        strategy p1, p2, p3;
-        strategy max_profit;
+        /* Try splitting the incoming intervals
+         * for better assignment opportunities, and
+         * add the new intervals to queue. Note that
+         * this cannot result in infinite recursion
+         * since split intervals can only be smaller,
+         * and at some point, intervals cannot be split
+         * further. */
+        SplitStrategy p1, p2, p3;
+        SplitStrategy winner;
 
-        p1 = try_hot_loop_splitting(front);
-        p2 = try_intra_block_splitting(front);
-        p3 = try_long_range_splitting(front);
-        max_st = p1.profit > p2.profit ? p1 : p2;
-        max_st = max_st.profit > p3.profit ? max_st : p3;
+        p1 = try_hot_loop_splitting(info);
+        p2 = try_intra_block_splitting(info);
+        p3 = try_long_range_splitting(info);
+        winner = p1.profit > p2.profit ? p1 : p2;
+        winner = winner.profit > p3.profit ? winner : p3;
 
-        if (max_st.profit) {
-            switch (max_st.strategy) {
+        if (winner.profit) {
+            switch (winner.type) {
                 case HOT_LOOP:
-                    ranges = split_around_loop(front);
+                    ranges = split_around_loop(info, winner);
                     push ranges to queue;
                     break;
                 case INTER_BLOCK:
-                    ranges = split_around_block(front);
+                    ranges = split_around_block(info, winner);
                     spill background range;
                     push foreground ranges to queue;
                     break;
                 case INTRA_BLOCK:
-                    ranges = split_within_block(front);
+                    ranges = split_within_block(info, winner);
                     spill foreground ranges;
                     push background range to queue;
                     break;
@@ -399,7 +444,7 @@ void allocation(Array *blocks, LivenessDFAObject *objs) {
     
         /* Spill the live range if no other allocation
         * methods apply. */
-        front->assigned_reg = SPILLED;
+        info->assigned_reg = SPILLED;
     }
 
 cleanup:
@@ -460,7 +505,7 @@ void coalescing(Array *blocks, RegAllocContext *c) {
                 VarInfo *r_info = c->var_to_info[rhs->ind];
 
                 if (
-                    overlap_live_intervals(l_info->intervals, r_info->intervals)
+                    overlap_live_interval_set(l_info->intervals, r_info->intervals)
                 ) continue;
 
                 /* Merge the rhs variable into the lhs variable. */
@@ -489,43 +534,55 @@ void coalescing(Array *blocks, RegAllocContext *c) {
  * the loop to relieve reg pressure.
  */
 
-int calc_spill_weight(LiveRange *lr) {
+int calc_spill_weight(VarInfo *info) {
+    // TODO: If cached, just return cache
     int total = 0;
-    for each interval {
-        total += execution_weight * (uses + defs);
+    for each use {
+        total += execution_weight of use blocks * 2;
+    }
+    for each def {
+        total += execution_weight of def blocks;
     }
     return total;
 }
 
-/* If free register, min_eviction_cost = 0;
- * otherwise, avg cost of evicting the conflicting
- * range from an existing register. */
-int calc_reg_pressure(LiveRange *lr) {
+/* Estimate reg pressure of a VarInfo by
+ * taking the avg cost of evicting conflicting intervals
+ * from an existing register. */
+int calc_reg_pressure(VarInfo *info) {
     int total_eviction_cost = 0;
     int total_regs;
 
     for each reg {
-        Set<LiveRange *> ranges = find_interfering_ranges(lr, register);
-        if (ranges not empty) total_regs++;
-        for (range in ranges) total_eviction_cost += range->spill_weight;
+        TBD *intervals = query_interference_vs(info->intervals, reg_intervals);
+        if (intervals not empty) total_regs++;
+        total_eviction_cost += calc_spill_weight(info);
     }
 
-    if (total_regs < threshold) return 0;
+    if (total_regs < NUM_REG) return 0;
 
     return total_eviction_cost / total_regs;
 }
 
-/* Two strategies at play: spill the range
- * to relieve reg pressure, or add to register
- * to relieve spill cost. Take the best strategy. */
-int calc_profit_without_mov_insertion(LiveRange *orig_lr, LiveRange *split_lr) {
-    int baseline = orig_lr->spill_weight;
+/* Estimate profit of splitting interval sets from
+ * orig->intervals, without considering the cost
+ * of MOV insertion, with two strategies at play:
+ * estimate the profit of spilling split intervals
+ * to relieve reg pressure, or the profit of
+ * assigning split intervals to register.
+ * Take the greater value of the two. */
+// TODO: update logic for interval sets
+int calc_profit_without_mov_insertion(VarInfo *orig, Array *interval_sets) {
+    int baseline = calc_spill_weight(orig);
 
-    LiveRange *new_lr; /* Cut split_lr from orig_lr */
-    int split_spill_weight = calc_spill_weight(split_lr);
-    int split_reg_pressure = calc_reg_pressure(split_lr);
-    int new_spill_weight = calc_spill_weight(new_lr);
-    int new_reg_pressure = calc_reg_pressure(new_lr);
+    VarInfo split_info = {orig->var, split_intervals, NO_REG, ...};
+    VarInfo new_info;
+    diff_var_info(orig, &split_info, &new_info);
+
+    int split_spill_weight = calc_spill_weight(&split_info);
+    int split_reg_pressure = calc_reg_pressure(&split_info);
+    int new_spill_weight = calc_spill_weight(&new_info);
+    int new_reg_pressure = calc_reg_pressure(&new_info);
 
     int s1 = baseline - (split_spill_weight + new_reg_pressure);
     int s2 = baseline - (new_spill_weight + split_reg_pressure);
@@ -534,114 +591,152 @@ int calc_profit_without_mov_insertion(LiveRange *orig_lr, LiveRange *split_lr) {
     return profit > 0 ? profit : 0;
 }
 
-/* TODO - cache spill weight on range creation each time */
+/* Strategy for hot loop splitting:
+ * If a var interval set covers a hot loop completely,
+ * try splitting out the hot loop region. If the
+ * interval set covers multiple loops, select the loop
+ * that yields the greatest profit from splitting. */
+// TODO - tag use and def
+SplitStrategy try_hot_loop_splitting(VarInfo *info) {
+    SplitStrategy res;
+    res.profit = 0;
+    res.type = NO_SPLIT;
 
-strategy try_hot_loop_splitting(LiveRange *lr) {
+    Array interval_sets;  // fixed size of 1 interval_set
 
-    /* TODO: find all loops completely covered by the range */
+    for (each interval in info->intervals) {
+        get loop;
+        if (loop is already assessed) continue;
+        if (
+            !comprise_live_interval_set(
+                info->intervals,
+                loop_info->intervals
+            )
+        ) {
+            add loop to assessed;
+            continue;
+        }
 
-    strategy st;
-    st.profit = 0;
-    st.strategy = NO_SPLIT;
-
-    for each loop {
-        int tmp_profit = calc_profit_without_mov_insertion(lr, loop);
+        ((TBD *) interval_sets.arr)[0] = (TBD *) loop->intervals;
+        int tmp_profit = calc_profit_without_mov_insertion(info, interval_sets);
         if (!tmp_profit) continue;
 
-        for (p in loop_head->predecessors) {
-            if (is_live(x, p_info.end)) tmp_profit -= execution_weight of p;
+        /* Adjust est. profit by subtracting the execution weights
+         * of predecessors where the variable is live out, and
+         * successors where the variable is live in. This is because
+         * MOV instructions would be inserted after these predecessors
+         * and before these successors, costing 1 cycle for each iteration. */
+        for (p in loop->head->predecessors) {
+            if (p in loop) continue;
+
+            get slot at live out of p;
+            if (is_live(info->var, slot))
+                tmp_profit -= execution weight of p;
         }
+
         for (e in loop->exits) {
             Block *s = e->bl0 out of loop ? e->bl0 : e->bl1;
-            if (is_live(x, s_info.start)) tmp_profit -= execution_weight of s;
+            get slot at live in of s;
+            if (is_live(inf->var, slot))
+                tmp_profit -= execution_weight of s;
         }
-        if (tmp_profit > st.profit) {
-            st.loop = loop;
-            st.profit = tmp_profit;
-            st.strategy = HOT_LOOP;
+        if (tmp_profit > res.profit) {
+            ((TBD *) res.interval_sets.arr)[0] = (TBD *) loop->intervals;
+            res.profit = tmp_profit;
+            res.type = HOT_LOOP;
         }
     }
 
-    return profit, st;
+    free(interval_sets.arr);
+    return res;
 }
 
-strategy try_inter_block_splitting(LiveRange *lr) {
-
-    strategy st;
-    st.profit = 0;
-    st.strategy = NO_SPLIT;
+/* Strategy for inter block splitting:
+ * For all intervals that cover entire blocks,
+ * if the block has uses or defs, carve out a
+ * new interval starting from the first use / def and end
+ * with the last use / def, then spill the background
+ * interval. Note that every split interval can be
+ * assigned a new variable. */
+SplitStrategy try_inter_block_splitting(VarInfo *info) {
+    SplitStrategy res;
+    res.profit = 0;
+    res.type = NO_SPLIT;
 
     int total_uses = 0;
     int total_defs = 0;
     int total_blocks = 0;
     bool has_use = false;
-    size_t last_block = SIZE_MAX;
-    size_t curr_block = SIZE_MAX;
+    Block *last_block = NULL;
 
     for each interval {
-        curr_block = interval.block;
-        if (interval.block_ind != last_block) {
+        if (interval->block != last_block) {
             total_blocks++;
-            has_use = false;
+            last_block = interval->block;
         }
-        if (interval.uses or interval.defs) {
-            has_use = true;
-            total_uses += interval.uses;
-            total_defs += interval.defs;
+        if (interval->uses.size or interval->defs.size) {
+            total_uses += interval->uses.size;
+            total_defs += interval->defs.size;
         }
     }
 
-    /* Eligibility: sparse uses or defs across blocks */
-    int sparcity = (total_uses + total_defs) / total_blocks;
-    if (sparcity >= threshold) return st;
+    /* Only apply the splitting if the uses and defs
+     * across blocks are sparse. */
+    int sparcity = total_blocks / (total_uses + total_defs);
+    if (sparcity < MIN_SPLIT_INTER_BLOCK_SPARCITY_THRES) return st;
 
-    /* Assess profitability of splits */
+    /* Assess profitability of splits. */
     int cost = 0;
-    vector<Interval> intervals;
-    vector<Range> ranges;
+    Array interval_sets;
+
     for each interval {
-        if (interval size < threshold) continue;
-        if (interval does not cover entire block and have use or def) intervals.add(interval);
+        if (interval size < MIN_SPLIT_INTERVAL_SIZE) continue;
+        if (interval does not cover entire block and have use or def) {
+            continue;
+        }
 
-        create new interval from first and last use or def;
-        cost += (1 + is_live(vreg, slot after last use or def) ? 1 : 0) * execution_weight;
-        push to intervals;
+        LiveInterval *interval = create new interval from first and last use or def;
+        cost += (1 + is_live(info->var, slot after last use or def) ? 1 : 0) * execution_weight;
 
-        create new range from interval;
-        push to ranges;
+        TBD *intervals = push interval to set;
+        tag uses and defs in intervals;
+        push intervals to interval_sets;
     }
 
-    if (intervals.empty()) return st;
+    if (!interval_sets.size) return res;
 
-    profit = calc_profit_without_mov_insertion(lr, intervals) - cost;
+    int profit = calc_profit_without_mov_insertion(info, intervals) - cost;
 
     if (profit > 0) {
-        st.profit = profit;
-        st.strategy = INTER_BLOCK;
-        st.ranges = ranges;
+        res.profit = profit;
+        res.interval_sets = interval_sets;
+        res.type = INTER_BLOCK;
     }
 
-    return st;
+    return res;
 }
 
-strategy try_intra_block_splitting(LiveRange *lr) {
+/* Strategy for intra block splitting:
+ * If local reg pressure is high within a block,
+ * carve out an interval for the high pressure
+ * region. Note that every split interval can
+ * be assigned a new variable. */
+SplitStrategy try_intra_block_splitting(VarInfo *info) {
+    SplitStrategy res;
+    res.profit = 0;
+    res.type = NO_SPLIT;
 
-    strategy st;
-    st.profit = 0;
-    st.strategy = NO_SPLIT;
+    Array interval_sets;
+    int cost = 0;
 
-    Array<Interval> intervals;
-    Array<Range> ranges;
+    for (each interval) {
+        if (interval size < MIN_SPLIT_INTERVAL_SIZE) continue;
 
-    int cost;
-
-    for each interval {
-        if (uses or size < threshold) continue;
-
-        size_t start = SIZE_MAX;
-        size_t end;
+        Slot *start = NULL;
+        Slot *end = NULL;
 
         while having next use or def {
+            if (is a use) num_uses++;
             slot = slot after def or before use;
             if (start == SIZE_MAX && slot reg pressure is high) {
                 start = slot;
@@ -649,28 +744,26 @@ strategy try_intra_block_splitting(LiveRange *lr) {
             else if (start != SIZE_MAX && slot reg pressure is low) {
                 end = slot;
 
-                create interval from [start, end);
-                intervals.add(interval);
-
-                create range from interval;
-                ranges.add(range);
+                LiveInterval new_interval = {start, end, interval->block};
+                TBD *intervals = push new_interval to set;
+                add uses and defs;
+                add intervals to interval_sets;
 
                 cost += (
                     (uses or defs ? 1 : 0) + (is_live(lr_vreg, end) ? 1 : 0)
                 ) * execution_weight;
 
-                start = SIZE_MAX;
+                start = NULL;
             }
         }
 
-        if (start != SIZE_MAX) {
+        if (start) {
             end = interval end;
 
-            create interval from [start, end);
-            intervals.add(interval);
-
-            create range from interval;
-            ranges.add(range);
+            LiveInterval new_interval = {start, end, interval->block};
+            TBD *intervals = push new_interval to set;
+            add uses and defs;
+            add intervals to interval_sets;
 
             cost += (
                 (uses or defs ? 1 : 0) + (is_live(lr->vreg, end) ? 1 : 0)
@@ -678,15 +771,17 @@ strategy try_intra_block_splitting(LiveRange *lr) {
         }
     }
 
-    int profit = calc_profit_without_mov_insertion(lr, intervals) - cost;
+    if (!interval_sets.size) return res;
+
+    int profit = calc_profit_without_mov_insertion(info, interval_sets) - cost;
 
     if (profit > 0) {
-        st.profit = profit;
-        st.ranges = ranges;
-        st.strategy = INTRA_BLOCK;
+        res.profit = profit;
+        res.interval_sets = interval_sets;
+        res.type = INTRA_BLOCK;
     }
 
-    return st;
+    return res;
 }
 
 /* Hot loop splitting:
@@ -884,9 +979,6 @@ for each block {
     size_t slot = 0;
 
     for (each instruction) {
-
-        if (LHS is dead in slot after) remove instruction, continue;
-
         if (MOV instruction) {
             if (RHS == LHS) remove instruction, continue;
             if (RHS not spilled, LHS not spilled) {
@@ -940,6 +1032,7 @@ for each block {
                     tmp[vreg] = register;
                     free_reg.remove(register);
                 else
+                    // TODO: handle RHS in conditional branch inst, cannot evict and reload
                     /* Note that if a vreg is live in slot before
                      * but dead after, it must be used in the current
                      * instruction. So, when evicting vregs, we don't

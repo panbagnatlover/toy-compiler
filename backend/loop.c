@@ -35,10 +35,15 @@
  * of graph state at each iteration of DFS.
  */
 
+typedef struct {
+    Arena loops;
+    Array block_to_loop;  // Mapping from block to innermost loop
+} LoopContext;
+
 Array<Block *> innermost_loop_header(n_blocks);
 Array<size_t> path_ind(n_blocks);  // 0 means not on current path
 Array<bool> visited(n_blocks);
-Array<Loop *> loop(n_blocks);
+Array<Loop *> loop(n_blocks);  // TODO: save to block info and pass to reg alloc
 
 /* Assign each block to the header of the innermost loop
  * that contains the block. */

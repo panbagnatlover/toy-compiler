@@ -49,9 +49,11 @@ typedef struct {
 } Use;
 
 typedef enum {
-    REG_SP = 0,
+    REG_NA = 0,
+    REG_SP,
     REG_FP,
-    REG_X1
+    REG_X1,
+    SPILLED
 } Reg;
 
 typedef struct {

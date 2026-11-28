@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "dll.h"
+#include "operand.h"
+#include "vreg.h"
 
 typedef struct Block;
 
